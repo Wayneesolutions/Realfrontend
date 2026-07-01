@@ -1,0 +1,251 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams } from 'react-router-dom';
+import axios from 'axios';
+import { API_BASE_URL } from '../api/config';
+
+export default function PropertyView() {
+  const { slug } = useParams();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Phase 3: the visit id this session's page view was logged under, so a
+  // later phone-number submission (if any) can be attached to it.
+  const visitIdRef = useRef(null);
+
+  // Phase 3: soft phone-number prompt state
+  const [showPhonePrompt, setShowPhonePrompt] = useState(false);
+  const [phoneForm, setPhoneForm] = useState({ name: '', phone: '' });
+  const [phoneSubmitting, setPhoneSubmitting] = useState(false);
+  const [phoneSubmitted, setPhoneSubmitted] = useState(false);
+  const [phoneError, setPhoneError] = useState(null);
+
+  useEffect(() => {
+    const fetchPublicListing = async () => {
+      try {
+        setLoading(true);
+        const res = await axios.get(`${API_BASE_URL}/api/v1/public/listings/${slug}`);
+        setData(res.data);
+      } catch (err) {
+        setError(err.response?.data?.error?.message || err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPublicListing();
+  }, [slug]);
+
+  // Log the visit once the listing is confirmed to exist and be active.
+  // Fire-and-forget: a failure here shouldn't block the buyer from seeing the page.
+  useEffect(() => {
+    if (!data?.listing) return;
+
+    axios.post(`${API_BASE_URL}/api/v1/public/listings/${slug}/visit`, {
+      referral_source: document.referrer ? 'referral' : 'direct'
+    })
+      .then((res) => {
+        visitIdRef.current = res.data.visitId;
+      })
+      .catch(() => { /* non-critical — page still works without this */ });
+  }, [data, slug]);
+
+  const handlePhoneFormChange = (e) => {
+    const { name, value } = e.target;
+    setPhoneForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handlePhoneSubmit = async (e) => {
+    e.preventDefault();
+    setPhoneSubmitting(true);
+    setPhoneError(null);
+
+    try {
+      await axios.post(`${API_BASE_URL}/api/v1/public/listings/${slug}/lead`, {
+        name: phoneForm.name,
+        phone: phoneForm.phone,
+        visitId: visitIdRef.current
+      });
+      setPhoneSubmitted(true);
+    } catch (err) {
+      setPhoneError(err.response?.data?.error?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setPhoneSubmitting(false);
+    }
+  };
+
+  if (loading) return <div style={styles.centerScreen}>Loading Property Map Layouts...</div>;
+  if (error) return <div style={{ ...styles.centerScreen, color: '#dc2626' }}>Error: {error}</div>;
+  if (!data || !data.listing) return <div style={styles.centerScreen}>No details available.</div>;
+
+  const { listing, media, landmarks, dealer } = data;
+
+  const formattedPrice = new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0
+  }).format(listing.price);
+
+  // Phase 4: free, no-API-cost WhatsApp CTA — opens the buyer's WhatsApp app
+  // with a pre-filled message referencing this exact listing.
+  const waMeLink = dealer?.whatsappDigits
+    ? `https://wa.me/${dealer.whatsappDigits}?text=${encodeURIComponent(
+        `Hi, I'm interested in "${listing.title}" (${formattedPrice}) — ${window.location.href}`
+      )}`
+    : null;
+
+  return (
+    <div style={styles.wrapper}>
+      <section style={styles.mediaContainer}>
+        {media?.satellite_image_url && (
+          <div style={styles.imageCard}>
+            <span style={styles.imageBadge}>Satellite Perimeter</span>
+            <img src={media.satellite_image_url} alt="Satellite Grid Layout" style={styles.mapImage} />
+          </div>
+        )}
+        {media?.streetview_image_url && (
+          <div style={styles.imageCard}>
+            <span style={styles.imageBadge}>Street View Access</span>
+            <img src={media.streetview_image_url} alt="Street Frontage Elevation" style={styles.mapImage} />
+          </div>
+        )}
+      </section>
+
+      <main style={styles.detailsContainer}>
+        <div style={styles.headerBlock}>
+          <span style={styles.typeTag}>{listing.property_type}</span>
+          <h1 style={styles.mainTitle}>{listing.title}</h1>
+          <div style={styles.priceTag}>{formattedPrice}</div>
+          <p style={styles.addressLabel}>📍 {listing.formatted_address || listing.raw_address}</p>
+        </div>
+
+        {/* Phase 4 — free WhatsApp CTA, no BSP cost, works immediately */}
+        {waMeLink && (
+          <a href={waMeLink} target="_blank" rel="noopener noreferrer" style={styles.whatsappCta}>
+            💬 Get more details on WhatsApp
+          </a>
+        )}
+
+        <hr style={styles.divider} />
+
+        <div style={styles.specGrid}>
+          <div style={styles.specItem}>
+            <span style={styles.specLabel}>Plot Boundary Area</span>
+            <span style={styles.specValue}>{listing.plot_area || 'Standard Dimension'}</span>
+          </div>
+          <div style={styles.specItem}>
+            <span style={styles.specLabel}>Status</span>
+            <span style={{ ...styles.specValue, color: '#16a34a', textTransform: 'uppercase', fontSize: '12px' }}>{listing.status}</span>
+          </div>
+        </div>
+
+        {listing.description && (
+          <div style={styles.card}>
+            <h3 style={styles.sectionTitle}>Overview Details</h3>
+            <p style={styles.descriptionText}>{listing.description}</p>
+          </div>
+        )}
+
+        <div style={styles.card}>
+          <h3 style={styles.sectionTitle}>Nearby Infrastructure & Landmarks</h3>
+          {landmarks && landmarks.length > 0 ? (
+            <div style={styles.landmarkList}>
+              {landmarks.map((item, index) => (
+                <div key={index} style={styles.landmarkItem}>
+                  <div style={styles.landmarkLeft}>
+                    <span style={styles.landmarkType}>{item.place_type}</span>
+                    <strong style={styles.landmarkName}>{item.place_name}</strong>
+                  </div>
+                  <div style={styles.landmarkRight}>
+                    <span>{item.distance_meters}m</span>
+                    <span style={styles.timeBreakdown}>
+                      (🚶{item.walk_minutes}m / 🚗{item.drive_minutes}m)
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p style={styles.emptyText}>No regional landmarks cataloged for this layout node.</p>
+          )}
+        </div>
+
+        {/* Phase 3 — soft phone-number prompt: identifies the visit + kicks off
+            the automated WhatsApp first-touch (see capturePublicLead on the backend) */}
+        <div style={styles.card}>
+          {phoneSubmitted ? (
+            <p style={{ ...styles.descriptionText, color: '#16a34a', fontWeight: '600' }}>
+              ✅ Thanks — our team will reach out on WhatsApp shortly.
+            </p>
+          ) : showPhonePrompt ? (
+            <form onSubmit={handlePhoneSubmit} style={styles.phoneForm}>
+              <h3 style={styles.sectionTitle}>Get a callback / WhatsApp update</h3>
+              {phoneError && <div style={styles.phoneError}>{phoneError}</div>}
+              <input
+                type="text"
+                name="name"
+                placeholder="Your name (optional)"
+                value={phoneForm.name}
+                onChange={handlePhoneFormChange}
+                style={styles.phoneInput}
+              />
+              <input
+                type="tel"
+                name="phone"
+                placeholder="Your phone number"
+                value={phoneForm.phone}
+                onChange={handlePhoneFormChange}
+                required
+                style={styles.phoneInput}
+              />
+              <button type="submit" disabled={phoneSubmitting} style={styles.phoneSubmitBtn}>
+                {phoneSubmitting ? 'Submitting…' : 'Share number'}
+              </button>
+            </form>
+          ) : (
+            <button onClick={() => setShowPhonePrompt(true)} style={styles.softPromptBtn}>
+              📞 Share your number for a callback
+            </button>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+const styles = {
+  wrapper: { width: '100%', maxWidth: '768px', margin: '0 auto', boxSizing: 'border-box', paddingBottom: '32px' },
+  centerScreen: { display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh', fontSize: '16px', fontWeight: '500' },
+  mediaContainer: { display: 'flex', flexDirection: 'column', gap: '4px', backgroundColor: '#000' },
+  imageCard: { position: 'relative', width: '100%', height: '260px' },
+  imageBadge: { position: 'absolute', top: '12px', left: '12px', backgroundColor: 'rgba(17, 24, 39, 0.8)', color: '#fff', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', letterSpacing: '0.5px' },
+  mapImage: { width: '100%', height: '100%', objectFit: 'cover' },
+  detailsContainer: { padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' },
+  headerBlock: { display: 'flex', flexDirection: 'column', gap: '6px' },
+  typeTag: { alignSelf: 'flex-start', backgroundColor: '#f3f4f6', color: '#4b5563', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase' },
+  mainTitle: { margin: 0, fontSize: '22px', color: '#111827', lineHeight: '1.3' },
+  priceTag: { fontSize: '24px', fontWeight: '800', color: '#2563eb' },
+  addressLabel: { margin: '4px 0 0 0', color: '#4b5563', fontSize: '14px', lineHeight: '1.4' },
+  whatsappCta: { display: 'block', textAlign: 'center', backgroundColor: '#16a34a', color: '#fff', padding: '12px', borderRadius: '8px', fontWeight: 'bold', textDecoration: 'none', fontSize: '15px' },
+  divider: { border: 0, height: '1px', backgroundColor: '#e5e7eb', margin: '4px 0' },
+  specGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
+  specItem: { backgroundColor: '#fff', border: '1px solid #e5e7eb', padding: '12px', borderRadius: '8px' },
+  specLabel: { display: 'block', fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', marginBottom: '2px' },
+  specValue: { fontSize: '15px', fontWeight: '600', color: '#1f2937' },
+  card: { backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px' },
+  sectionTitle: { margin: '0 0 12px 0', fontSize: '15px', color: '#374151', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  descriptionText: { margin: 0, fontSize: '14px', color: '#4b5563', lineHeight: '1.6' },
+  landmarkList: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  landmarkItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid #f3f4f6' },
+  landmarkLeft: { display: 'flex', flexDirection: 'column', gap: '2px', maxWidth: '70%' },
+  landmarkType: { fontSize: '10px', textTransform: 'uppercase', color: '#9ca3af', fontWeight: 'bold' },
+  landmarkName: { fontSize: '14px', color: '#1f2937', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  landmarkRight: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '13px', color: '#4b5563', minWidth: '80px' },
+  timeBreakdown: { fontSize: '11px', color: '#9ca3af', marginTop: '2px' },
+  emptyText: { color: '#9ca3af', fontStyle: 'italic', fontSize: '13px', margin: 0 },
+  softPromptBtn: { width: '100%', padding: '12px', border: '1px dashed #2563eb', backgroundColor: '#eff6ff', color: '#2563eb', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px' },
+  phoneForm: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  phoneInput: { padding: '10px', fontSize: '14px', border: '1px solid #d1d5db', borderRadius: '6px', width: '100%', boxSizing: 'border-box' },
+  phoneSubmitBtn: { padding: '10px', border: 'none', backgroundColor: '#2563eb', color: '#fff', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' },
+  phoneError: { backgroundColor: '#fef2f2', color: '#dc2626', padding: '8px 10px', borderRadius: '6px', fontSize: '13px' }
+};
