@@ -170,7 +170,7 @@ export default function DashboardListings() {
         </div>
       )}
 
-      {/* 🛠️ MODAL LAYER B: Mapbox GL Vector Geometric Tracer Drawer overlay */}
+      {/* 🛠️ MODAL LAYER B: Google Maps satellite plot boundary tracer */}
       {activeTracerListing && (
         <div style={styles.modalOverlay}>
           <div style={{...styles.modalContent, maxWidth: '800px', width: '90%'}}>
