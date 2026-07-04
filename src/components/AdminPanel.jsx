@@ -1,0 +1,544 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import apiClient from '../api/apiClient';
+
+const TABS = ['Pending Requests', 'All Tenants', 'Create Tenant'];
+
+export default function AdminPanel() {
+  const navigate = useNavigate();
+  const user = JSON.parse(localStorage.getItem('pve_user') || '{}');
+
+  const [tab, setTab]           = useState(0);
+  const [requests, setRequests] = useState([]);
+  const [tenants, setTenants]   = useState([]);
+  const [loading, setLoading]   = useState(false);
+  const [actionLoading, setActionLoading] = useState(null); // id of row being actioned
+  const [credential, setCredential] = useState(null); // { email, password, businessName }
+  const [createForm, setCreateForm] = useState({ business_name: '', contact_name: '', email: '', phone: '' });
+  const [createError, setCreateError]   = useState(null);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (msg, type = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const fetchRequests = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiClient.get('/api/v1/admin/requests?status=pending');
+      setRequests(res.data.requests);
+    } catch {
+      showToast('Failed to load requests.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchTenants = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiClient.get('/api/v1/admin/tenants');
+      setTenants(res.data.tenants);
+    } catch {
+      showToast('Failed to load tenants.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === 0) fetchRequests();
+    if (tab === 1) fetchTenants();
+  }, [tab, fetchRequests, fetchTenants]);
+
+  const handleApprove = async (id) => {
+    setActionLoading(id);
+    try {
+      const res = await apiClient.post(`/api/v1/admin/requests/${id}/approve`);
+      setCredential({
+        businessName: res.data.tenant.business_name,
+        email: res.data.user.email,
+        password: res.data.temporaryPassword,
+      });
+      setRequests((r) => r.filter((req) => req.id !== id));
+    } catch (err) {
+      showToast(err.response?.data?.error?.message || 'Approval failed.', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleReject = async (id) => {
+    if (!window.confirm('Reject this request?')) return;
+    setActionLoading(id);
+    try {
+      await apiClient.post(`/api/v1/admin/requests/${id}/reject`);
+      setRequests((r) => r.filter((req) => req.id !== id));
+      showToast('Request rejected.');
+    } catch (err) {
+      showToast(err.response?.data?.error?.message || 'Rejection failed.', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const setField = (f) => (e) => setCreateForm((p) => ({ ...p, [f]: e.target.value }));
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    setCreateLoading(true);
+    setCreateError(null);
+    try {
+      const res = await apiClient.post('/api/v1/admin/tenants', createForm);
+      setCredential({
+        businessName: res.data.tenant.business_name,
+        email: res.data.user.email,
+        password: res.data.temporaryPassword,
+      });
+      setCreateForm({ business_name: '', contact_name: '', email: '', phone: '' });
+    } catch (err) {
+      setCreateError(err.response?.data?.error?.message || 'Failed to create tenant.');
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const logout = () => {
+    localStorage.removeItem('pve_token');
+    localStorage.removeItem('pve_user');
+    navigate('/login');
+  };
+
+  return (
+    <div style={S.root}>
+
+      {/* ══ Sidebar ══════════════════════════════════════════ */}
+      <aside style={S.sidebar}>
+        <div style={S.sideTop}>
+          <div style={S.logoRow}>
+            <div style={S.logoBox}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M3 9.5L12 3l9 6.5V21H15v-6H9v6H3V9.5Z" fill="#0c1b2e"/>
+              </svg>
+            </div>
+            <div>
+              <div style={S.logoName}>PropertyPro</div>
+              <div style={S.logoBadge}>Super Admin</div>
+            </div>
+          </div>
+
+          <nav style={S.nav}>
+            {TABS.map((label, i) => (
+              <button key={label} style={{ ...S.navItem, ...(tab === i ? S.navItemActive : {}) }} onClick={() => setTab(i)}>
+                <span style={S.navIcon}>{['📋', '🏢', '➕'][i]}</span>
+                {label}
+                {i === 0 && requests.length > 0 && (
+                  <span style={S.navBadge}>{requests.length}</span>
+                )}
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        <div style={S.sideBottom}>
+          <div style={S.userInfo}>
+            <div style={S.userAvatar}>{user.name?.[0] || 'A'}</div>
+            <div>
+              <div style={S.userName}>{user.name || 'Admin'}</div>
+              <div style={S.userEmail}>{user.email || ''}</div>
+            </div>
+          </div>
+          <button style={S.logoutBtn} onClick={logout}>Sign Out</button>
+        </div>
+      </aside>
+
+      {/* ══ Main Content ════════════════════════════════════ */}
+      <main style={S.main}>
+
+        {/* Toast */}
+        {toast && (
+          <div style={{ ...S.toast, ...(toast.type === 'error' ? S.toastError : S.toastSuccess) }}>
+            {toast.msg}
+          </div>
+        )}
+
+        {/* Credential Modal */}
+        {credential && (
+          <div style={S.modalOverlay}>
+            <div style={S.modal}>
+              <div style={S.modalStripe} />
+              <div style={S.modalBody}>
+                <div style={S.modalIcon}>🎉</div>
+                <h3 style={S.modalTitle}>Account Created</h3>
+                <p style={S.modalSub}>
+                  <strong>{credential.businessName}</strong> is now on the platform.
+                  Share these credentials directly with the owner.
+                </p>
+                <div style={S.credBox}>
+                  <div style={S.credRow}>
+                    <span style={S.credLabel}>Email</span>
+                    <span style={S.credValue}>{credential.email}</span>
+                  </div>
+                  <div style={S.credDivider} />
+                  <div style={S.credRow}>
+                    <span style={S.credLabel}>Temp Password</span>
+                    <span style={{ ...S.credValue, ...S.credPassword }}>{credential.password}</span>
+                  </div>
+                </div>
+                <p style={S.modalNote}>This password will not be shown again. Copy it now.</p>
+                <button style={S.modalClose} onClick={() => setCredential(null)}>Done</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Tab 0: Pending Requests ────────────────────── */}
+        {tab === 0 && (
+          <section style={S.section}>
+            <div style={S.sectionHead}>
+              <div>
+                <h1 style={S.pageTitle}>Pending Requests</h1>
+                <p style={S.pageSubtitle}>Review and act on access requests from prospective dealers</p>
+              </div>
+              <button style={S.refreshBtn} onClick={fetchRequests}>Refresh</button>
+            </div>
+
+            {loading ? (
+              <div style={S.empty}>Loading…</div>
+            ) : requests.length === 0 ? (
+              <div style={S.emptyCard}>
+                <div style={S.emptyIcon}>✓</div>
+                <p style={S.emptyText}>No pending requests</p>
+              </div>
+            ) : (
+              <div style={S.cardList}>
+                {requests.map((req) => (
+                  <div key={req.id} style={S.requestCard}>
+                    <div style={S.requestInfo}>
+                      <div style={S.requestAvatar}>{req.business_name[0]}</div>
+                      <div>
+                        <div style={S.requestBiz}>{req.business_name}</div>
+                        <div style={S.requestMeta}>{req.contact_name} · {req.email} · {req.phone}</div>
+                        {req.message && <div style={S.requestMsg}>"{req.message}"</div>}
+                        <div style={S.requestDate}>{new Date(req.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                      </div>
+                    </div>
+                    <div style={S.requestActions}>
+                      <button
+                        style={{ ...S.approveBtn, opacity: actionLoading === req.id ? 0.6 : 1 }}
+                        disabled={actionLoading === req.id}
+                        onClick={() => handleApprove(req.id)}
+                      >
+                        {actionLoading === req.id ? '…' : 'Approve'}
+                      </button>
+                      <button
+                        style={{ ...S.rejectBtn, opacity: actionLoading === req.id ? 0.6 : 1 }}
+                        disabled={actionLoading === req.id}
+                        onClick={() => handleReject(req.id)}
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ── Tab 1: All Tenants ─────────────────────────── */}
+        {tab === 1 && (
+          <section style={S.section}>
+            <div style={S.sectionHead}>
+              <div>
+                <h1 style={S.pageTitle}>All Tenants</h1>
+                <p style={S.pageSubtitle}>Every real estate company on the platform</p>
+              </div>
+              <button style={S.refreshBtn} onClick={fetchTenants}>Refresh</button>
+            </div>
+
+            {loading ? (
+              <div style={S.empty}>Loading…</div>
+            ) : tenants.length === 0 ? (
+              <div style={S.emptyCard}>
+                <div style={S.emptyIcon}>🏢</div>
+                <p style={S.emptyText}>No tenants yet</p>
+              </div>
+            ) : (
+              <div style={S.tableWrap}>
+                <table style={S.table}>
+                  <thead>
+                    <tr>
+                      {['Business Name', 'Plan', 'Users', 'Status', 'Joined'].map((h) => (
+                        <th key={h} style={S.th}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tenants.map((t) => (
+                      <tr key={t.id} style={S.tr}>
+                        <td style={S.td}>
+                          <div style={S.tenantName}>{t.business_name}</div>
+                        </td>
+                        <td style={S.td}>
+                          <span style={{ ...S.planBadge, ...S.planColors[t.plan] || S.planColors.starter }}>
+                            {t.plan}
+                          </span>
+                        </td>
+                        <td style={S.td}>{t.user_count}</td>
+                        <td style={S.td}>
+                          <span style={{ ...S.statusBadge, ...(t.status === 'active' ? S.statusActive : S.statusInactive) }}>
+                            {t.status}
+                          </span>
+                        </td>
+                        <td style={S.td}>{new Date(t.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ── Tab 2: Create Tenant ───────────────────────── */}
+        {tab === 2 && (
+          <section style={S.section}>
+            <div style={S.sectionHead}>
+              <div>
+                <h1 style={S.pageTitle}>Create Tenant</h1>
+                <p style={S.pageSubtitle}>Directly onboard a new real estate company without a request</p>
+              </div>
+            </div>
+
+            <div style={S.formCard}>
+              <form onSubmit={handleCreate} style={S.createForm}>
+                {createError && (
+                  <div style={S.formError}>
+                    <span style={S.formErrorIcon}>!</span>
+                    {createError}
+                  </div>
+                )}
+
+                <div style={S.formGrid}>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Business / Company Name</label>
+                    <input style={S.formInput} type="text" required placeholder="e.g. Sunrise Realty" value={createForm.business_name} onChange={setField('business_name')} />
+                  </div>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Owner / Contact Name</label>
+                    <input style={S.formInput} type="text" required placeholder="e.g. Rajesh Sharma" value={createForm.contact_name} onChange={setField('contact_name')} />
+                  </div>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Email Address</label>
+                    <input style={S.formInput} type="email" required placeholder="owner@company.com" value={createForm.email} onChange={setField('email')} />
+                  </div>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Phone Number</label>
+                    <input style={S.formInput} type="tel" required placeholder="+91 98765 43210" value={createForm.phone} onChange={setField('phone')} />
+                  </div>
+                </div>
+
+                <button type="submit" disabled={createLoading} style={{ ...S.createBtn, opacity: createLoading ? 0.7 : 1 }}>
+                  {createLoading ? 'Creating…' : 'Create Tenant Account'}
+                </button>
+              </form>
+            </div>
+          </section>
+        )}
+      </main>
+    </div>
+  );
+}
+
+const S = {
+  root: { display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: '#f1f5f9', fontFamily: 'inherit' },
+
+  // Sidebar
+  sidebar: {
+    width: '260px', flexShrink: 0,
+    background: 'linear-gradient(180deg, #060d18 0%, #0b1929 100%)',
+    display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+    padding: '28px 0',
+  },
+  sideTop: { display: 'flex', flexDirection: 'column', gap: '32px' },
+  logoRow: { display: 'flex', alignItems: 'center', gap: '12px', padding: '0 24px' },
+  logoBox: {
+    width: '38px', height: '38px', borderRadius: '10px', backgroundColor: '#c8a96e', flexShrink: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    boxShadow: '0 4px 12px rgba(200,169,110,0.35)',
+  },
+  logoName: { fontSize: '14px', fontWeight: '800', color: '#ffffff', letterSpacing: '0.5px' },
+  logoBadge: { fontSize: '10px', fontWeight: '600', color: '#c8a96e', textTransform: 'uppercase', letterSpacing: '1px' },
+  nav: { display: 'flex', flexDirection: 'column', gap: '4px', padding: '0 12px' },
+  navItem: {
+    display: 'flex', alignItems: 'center', gap: '10px',
+    padding: '11px 14px', borderRadius: '10px', border: 'none',
+    background: 'transparent', color: 'rgba(255,255,255,0.55)',
+    fontSize: '13px', fontWeight: '500', cursor: 'pointer', textAlign: 'left', width: '100%',
+    transition: 'background 0.15s, color 0.15s',
+  },
+  navItemActive: { background: 'rgba(200,169,110,0.15)', color: '#c8a96e' },
+  navIcon: { fontSize: '15px', flexShrink: 0 },
+  navBadge: {
+    marginLeft: 'auto', backgroundColor: '#c8a96e', color: '#0c1b2e',
+    fontSize: '10px', fontWeight: '800', borderRadius: '999px',
+    padding: '2px 7px', minWidth: '18px', textAlign: 'center',
+  },
+  sideBottom: { padding: '0 16px', display: 'flex', flexDirection: 'column', gap: '12px' },
+  userInfo: { display: 'flex', alignItems: 'center', gap: '10px' },
+  userAvatar: {
+    width: '34px', height: '34px', borderRadius: '50%', flexShrink: 0,
+    background: 'rgba(200,169,110,0.20)', border: '1px solid rgba(200,169,110,0.35)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    color: '#c8a96e', fontSize: '14px', fontWeight: '700',
+  },
+  userName: { fontSize: '13px', fontWeight: '600', color: '#fff' },
+  userEmail: { fontSize: '11px', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '150px' },
+  logoutBtn: {
+    padding: '9px', width: '100%', border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: '9px', background: 'transparent', color: 'rgba(255,255,255,0.45)',
+    fontSize: '12px', cursor: 'pointer', fontWeight: '500',
+  },
+
+  // Main
+  main: { flex: 1, overflowY: 'auto', position: 'relative' },
+
+  // Toast
+  toast: {
+    position: 'fixed', top: '20px', right: '24px', zIndex: 9999,
+    padding: '12px 20px', borderRadius: '10px', fontSize: '13px', fontWeight: '600',
+    boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+  },
+  toastSuccess: { backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' },
+  toastError: { backgroundColor: '#fff5f5', color: '#c53030', border: '1px solid #fed7d7' },
+
+  // Section
+  section: { padding: '36px 40px' },
+  sectionHead: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '28px' },
+  pageTitle: { fontSize: '22px', fontWeight: '800', color: '#0c1b2e', margin: '0 0 6px 0' },
+  pageSubtitle: { fontSize: '13px', color: '#64748b', margin: 0 },
+  refreshBtn: {
+    padding: '9px 18px', border: '1.5px solid #e2e8f0', borderRadius: '9px',
+    background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+  },
+
+  // Empty
+  empty: { color: '#94a3b8', fontSize: '14px', padding: '40px 0', textAlign: 'center' },
+  emptyCard: {
+    background: '#fff', borderRadius: '16px', padding: '56px 32px', textAlign: 'center',
+    border: '1px solid #e2e8f0',
+  },
+  emptyIcon: { fontSize: '32px', marginBottom: '12px' },
+  emptyText: { fontSize: '14px', color: '#64748b', margin: 0 },
+
+  // Request cards
+  cardList: { display: 'flex', flexDirection: 'column', gap: '12px' },
+  requestCard: {
+    background: '#fff', borderRadius: '14px', padding: '20px 24px',
+    border: '1px solid #e2e8f0', display: 'flex',
+    alignItems: 'center', justifyContent: 'space-between', gap: '20px',
+    boxShadow: '0 1px 4px rgba(12,27,46,0.05)',
+  },
+  requestInfo: { display: 'flex', alignItems: 'flex-start', gap: '16px', flex: 1 },
+  requestAvatar: {
+    width: '44px', height: '44px', borderRadius: '12px', flexShrink: 0,
+    background: 'linear-gradient(135deg, #0c1b2e, #1a3558)',
+    color: '#c8a96e', fontSize: '18px', fontWeight: '700',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  requestBiz: { fontSize: '15px', fontWeight: '700', color: '#0c1b2e', marginBottom: '4px' },
+  requestMeta: { fontSize: '12px', color: '#64748b', marginBottom: '4px' },
+  requestMsg: { fontSize: '12px', color: '#94a3b8', fontStyle: 'italic', marginBottom: '4px' },
+  requestDate: { fontSize: '11px', color: '#cbd5e1' },
+  requestActions: { display: 'flex', gap: '8px', flexShrink: 0 },
+  approveBtn: {
+    padding: '9px 20px', background: 'linear-gradient(135deg, #16a34a, #15803d)',
+    color: '#fff', border: 'none', borderRadius: '9px', fontSize: '13px',
+    fontWeight: '700', cursor: 'pointer', boxShadow: '0 2px 8px rgba(22,163,74,0.30)',
+  },
+  rejectBtn: {
+    padding: '9px 20px', background: '#fff', color: '#dc2626',
+    border: '1.5px solid #fca5a5', borderRadius: '9px',
+    fontSize: '13px', fontWeight: '700', cursor: 'pointer',
+  },
+
+  // Tenant table
+  tableWrap: { background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden' },
+  table: { width: '100%', borderCollapse: 'collapse' },
+  th: { padding: '14px 20px', textAlign: 'left', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.7px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#fafbfd' },
+  tr: { borderBottom: '1px solid #f1f5f9' },
+  td: { padding: '16px 20px', fontSize: '14px', color: '#334155' },
+  tenantName: { fontWeight: '600', color: '#0c1b2e' },
+  planBadge: { padding: '3px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  planColors: {
+    starter: { background: '#eff6ff', color: '#1d4ed8' },
+    growth: { background: '#fefce8', color: '#ca8a04' },
+    unlimited: { background: '#f0fdf4', color: '#15803d' },
+  },
+  statusBadge: { padding: '3px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '700' },
+  statusActive: { background: '#f0fdf4', color: '#15803d' },
+  statusInactive: { background: '#fff5f5', color: '#dc2626' },
+
+  // Create form
+  formCard: { background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '32px', maxWidth: '640px' },
+  createForm: { display: 'flex', flexDirection: 'column', gap: '0' },
+  formError: {
+    display: 'flex', alignItems: 'center', gap: '10px',
+    backgroundColor: '#fff5f5', color: '#c53030', padding: '12px 16px',
+    borderRadius: '10px', fontSize: '13px', fontWeight: '500', marginBottom: '20px',
+    border: '1px solid #fed7d7',
+  },
+  formErrorIcon: {
+    width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#fed7d7', color: '#c53030',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '800', flexShrink: 0,
+  },
+  formGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' },
+  formField: { display: 'flex', flexDirection: 'column', gap: '7px' },
+  formLabel: { fontSize: '11px', fontWeight: '700', color: '#374151', textTransform: 'uppercase', letterSpacing: '0.7px' },
+  formInput: {
+    padding: '12px 14px', fontSize: '14px', border: '1.5px solid #e2e8f0',
+    borderRadius: '10px', color: '#0c1b2e', backgroundColor: '#fafbfd',
+    transition: 'border-color 0.15s', boxSizing: 'border-box', width: '100%',
+  },
+  createBtn: {
+    padding: '13px 28px', background: 'linear-gradient(135deg, #0c1b2e 0%, #1a3558 100%)',
+    color: '#fff', border: 'none', borderRadius: '11px', fontWeight: '700',
+    fontSize: '14px', cursor: 'pointer', alignSelf: 'flex-start',
+    boxShadow: '0 4px 16px rgba(12,27,46,0.25)',
+  },
+
+  // Credential modal
+  modalOverlay: {
+    position: 'fixed', inset: 0, backgroundColor: 'rgba(12,27,46,0.55)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+    backdropFilter: 'blur(2px)',
+  },
+  modal: {
+    width: '100%', maxWidth: '440px', backgroundColor: '#fff',
+    borderRadius: '20px', overflow: 'hidden',
+    boxShadow: '0 24px 64px rgba(12,27,46,0.25)',
+  },
+  modalStripe: { height: '4px', background: 'linear-gradient(90deg, #c8a96e 0%, #e8c98e 50%, #c8a96e 100%)' },
+  modalBody: { padding: '36px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' },
+  modalIcon: { fontSize: '36px', marginBottom: '16px' },
+  modalTitle: { fontSize: '22px', fontWeight: '800', color: '#0c1b2e', margin: '0 0 10px 0' },
+  modalSub: { fontSize: '14px', color: '#64748b', margin: '0 0 24px 0', lineHeight: '1.6' },
+  credBox: {
+    width: '100%', backgroundColor: '#f8fafc', borderRadius: '12px',
+    border: '1.5px solid #e2e8f0', overflow: 'hidden', marginBottom: '12px',
+  },
+  credRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', gap: '12px' },
+  credDivider: { height: '1px', backgroundColor: '#e2e8f0' },
+  credLabel: { fontSize: '11px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.7px', flexShrink: 0 },
+  credValue: { fontSize: '14px', color: '#0c1b2e', fontWeight: '500', wordBreak: 'break-all', textAlign: 'right' },
+  credPassword: { fontFamily: 'monospace', color: '#0c1b2e', fontWeight: '700', fontSize: '15px' },
+  modalNote: { fontSize: '12px', color: '#f59e0b', fontWeight: '600', margin: '0 0 24px 0' },
+  modalClose: {
+    padding: '12px 36px', background: 'linear-gradient(135deg, #0c1b2e, #1a3558)',
+    color: '#fff', border: 'none', borderRadius: '10px', fontWeight: '700',
+    fontSize: '14px', cursor: 'pointer',
+  },
+};

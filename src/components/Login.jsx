@@ -18,7 +18,7 @@ export default function Login() {
       const res = await axios.post(`${API_BASE_URL}/api/v1/auth/login`, { email, password });
       localStorage.setItem('pve_token', res.data.token);
       localStorage.setItem('pve_user', JSON.stringify(res.data.user));
-      navigate('/dashboard');
+      navigate(res.data.user.role === 'super_admin' ? '/admin' : '/dashboard');
     } catch (err) {
       setError(err.response?.data?.error?.message || 'Login failed. Please try again.');
     } finally {
