@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 import ChangePassword from './ChangePassword.jsx';
 import PlotBoundaryTracer from './PlotBoundaryTracer';
+// NEW — Phase 7
+import BillingModal from './BillingModal.jsx';
 
 export default function DashboardListings() {
   const navigate   = useNavigate();
@@ -25,6 +27,7 @@ export default function DashboardListings() {
   });
   const [submitting, setSubmitting]       = useState(false);
   const [showPwModal, setShowPwModal]     = useState(false);
+  const [showBillingModal, setShowBillingModal] = useState(false); // NEW — Phase 7
   const [copiedSlug, setCopiedSlug]       = useState(null);
 
   useEffect(() => { fetchListings(); }, []);
@@ -123,6 +126,14 @@ export default function DashboardListings() {
           )}
           <button
             className="pve-topbar-btn"
+            onClick={() => setShowBillingModal(true)}
+            style={S.iconBtn}
+            title="Billing & Plan"
+          >
+            💳
+          </button>
+          <button
+            className="pve-topbar-btn"
             onClick={() => setShowPwModal(true)}
             style={S.iconBtn}
             title="Change Password"
@@ -140,6 +151,7 @@ export default function DashboardListings() {
       </header>
 
       {showPwModal && <ChangePassword onClose={() => setShowPwModal(false)} />}
+      {showBillingModal && <BillingModal onClose={() => setShowBillingModal(false)} />}
 
       {/* ══ PAGE BODY ════════════════════════════════════════════ */}
       <div style={S.page}>

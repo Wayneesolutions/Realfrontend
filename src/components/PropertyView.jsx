@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { API_BASE_URL } from '../api/config';
+// NEW — Phase 6 monetization
+import RentVsBuyCalculator from './RentVsBuyCalculator.jsx';
+import AdSlot from './AdSlot.jsx';
 
 export default function PropertyView() {
   const { slug } = useParams();
@@ -243,6 +246,16 @@ export default function PropertyView() {
             <p style={S.emptyNote}>No landmark data for this listing yet.</p>
           )}
         </div>
+
+        {/* NEW — Rent vs Buy Calculator (Phase 6) */}
+        <RentVsBuyCalculator
+          tenantId={listing.tenant_id}
+          propertyId={listing.id}
+          defaultPrice={listing.price}
+        />
+
+        {/* NEW — Sponsored ad slot (Phase 6) */}
+        <AdSlot position="calculator_result" />
 
         {/* Lead capture */}
         <div style={S.leadCard}>

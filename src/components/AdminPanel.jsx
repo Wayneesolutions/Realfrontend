@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 
-const TABS = ['Pending Requests', 'All Tenants', 'Create Tenant'];
+const TABS = ['Pending Requests', 'All Tenants', 'Create Tenant', 'Ad Placements'];
+const AD_POSITIONS = ['calculator_result', 'listing_sidebar', 'listing_footer'];
 
 export default function AdminPanel() {
   const navigate = useNavigate();
@@ -18,6 +19,16 @@ export default function AdminPanel() {
   const [createError, setCreateError]   = useState(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [toast, setToast] = useState(null);
+
+  // NEW — Phase 6: Ad Placements tab state
+  const [ads, setAds]                 = useState([]);
+  const [adForm, setAdForm]           = useState({
+    advertiser_name: '', position: AD_POSITIONS[0], image_url: '', click_url: '',
+    city_filter: '', revenue_model: 'flat_fee', active_from: '', active_to: '',
+  });
+  const [adCreateError, setAdCreateError]     = useState(null);
+  const [adCreateLoading, setAdCreateLoading] = useState(false);
+  const [adToggleLoading, setAdToggleLoading] = useState(null);
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
@@ -48,10 +59,24 @@ export default function AdminPanel() {
     }
   }, []);
 
+  // NEW — Phase 6
+  const fetchAds = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiClient.get('/api/v1/admin/ads');
+      setAds(res.data.placements);
+    } catch {
+      showToast('Failed to load ad placements.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (tab === 0) fetchRequests();
     if (tab === 1) fetchTenants();
-  }, [tab, fetchRequests, fetchTenants]);
+    if (tab === 3) fetchAds();
+  }, [tab, fetchRequests, fetchTenants, fetchAds]);
 
   const handleApprove = async (id) => {
     setActionLoading(id);
@@ -105,6 +130,41 @@ export default function AdminPanel() {
     }
   };
 
+  // NEW — Phase 6: Ad Placements handlers
+  const setAdField = (f) => (e) => setAdForm((p) => ({ ...p, [f]: e.target.value }));
+
+  const handleCreateAd = async (e) => {
+    e.preventDefault();
+    setAdCreateLoading(true);
+    setAdCreateError(null);
+    try {
+      const payload = { ...adForm, city_filter: adForm.city_filter.trim() || null };
+      await apiClient.post('/api/v1/admin/ads', payload);
+      setAdForm({
+        advertiser_name: '', position: AD_POSITIONS[0], image_url: '', click_url: '',
+        city_filter: '', revenue_model: 'flat_fee', active_from: '', active_to: '',
+      });
+      showToast('Ad placement created.');
+      fetchAds();
+    } catch (err) {
+      setAdCreateError(err.response?.data?.error?.message || 'Failed to create ad placement.');
+    } finally {
+      setAdCreateLoading(false);
+    }
+  };
+
+  const handleToggleAd = async (ad) => {
+    setAdToggleLoading(ad.id);
+    try {
+      await apiClient.patch(`/api/v1/admin/ads/${ad.id}`, { is_active: !ad.is_active });
+      setAds((prev) => prev.map((a) => (a.id === ad.id ? { ...a, is_active: !a.is_active } : a)));
+    } catch (err) {
+      showToast(err.response?.data?.error?.message || 'Failed to update ad placement.', 'error');
+    } finally {
+      setAdToggleLoading(null);
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem('pve_token');
     localStorage.removeItem('pve_user');
@@ -132,7 +192,7 @@ export default function AdminPanel() {
           <nav style={S.nav}>
             {TABS.map((label, i) => (
               <button key={label} style={{ ...S.navItem, ...(tab === i ? S.navItemActive : {}) }} onClick={() => setTab(i)}>
-                <span style={S.navIcon}>{['📋', '🏢', '➕'][i]}</span>
+                <span style={S.navIcon}>{['📋', '🏢', '➕', '📢'][i]}</span>
                 {label}
                 {i === 0 && requests.length > 0 && (
                   <span style={S.navBadge}>{requests.length}</span>
@@ -348,6 +408,127 @@ export default function AdminPanel() {
             </div>
           </section>
         )}
+
+        {/* ── Tab 3: Ad Placements (NEW — Phase 6) ───────── */}
+        {tab === 3 && (
+          <section style={S.section}>
+            <div style={S.sectionHead}>
+              <div>
+                <h1 style={S.pageTitle}>Ad Placements</h1>
+                <p style={S.pageSubtitle}>Direct-sold display campaigns shown on public property pages</p>
+              </div>
+              <button style={S.refreshBtn} onClick={fetchAds}>Refresh</button>
+            </div>
+
+            <div style={S.formCard}>
+              <form onSubmit={handleCreateAd} style={S.createForm}>
+                {adCreateError && (
+                  <div style={S.formError}>
+                    <span style={S.formErrorIcon}>!</span>
+                    {adCreateError}
+                  </div>
+                )}
+
+                <div style={S.formGrid}>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Advertiser Name</label>
+                    <input style={S.formInput} type="text" required placeholder="e.g. Homely Interiors" value={adForm.advertiser_name} onChange={setAdField('advertiser_name')} />
+                  </div>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Position</label>
+                    <select style={S.formInput} value={adForm.position} onChange={setAdField('position')}>
+                      {AD_POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Image URL</label>
+                    <input style={S.formInput} type="url" required placeholder="https://…" value={adForm.image_url} onChange={setAdField('image_url')} />
+                  </div>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Click-through URL</label>
+                    <input style={S.formInput} type="url" required placeholder="https://…" value={adForm.click_url} onChange={setAdField('click_url')} />
+                  </div>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>City Filter (optional)</label>
+                    <input style={S.formInput} type="text" placeholder="Leave blank for all cities" value={adForm.city_filter} onChange={setAdField('city_filter')} />
+                  </div>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Revenue Model</label>
+                    <select style={S.formInput} value={adForm.revenue_model} onChange={setAdField('revenue_model')}>
+                      <option value="flat_fee">Flat Fee</option>
+                      <option value="cpl">Cost Per Lead</option>
+                    </select>
+                  </div>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Active From</label>
+                    <input style={S.formInput} type="datetime-local" required value={adForm.active_from} onChange={setAdField('active_from')} />
+                  </div>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Active To</label>
+                    <input style={S.formInput} type="datetime-local" required value={adForm.active_to} onChange={setAdField('active_to')} />
+                  </div>
+                </div>
+
+                <button type="submit" disabled={adCreateLoading} style={{ ...S.createBtn, opacity: adCreateLoading ? 0.7 : 1 }}>
+                  {adCreateLoading ? 'Creating…' : 'Create Ad Placement'}
+                </button>
+              </form>
+            </div>
+
+            {loading ? (
+              <div style={S.empty}>Loading…</div>
+            ) : ads.length === 0 ? (
+              <div style={S.emptyCard}>
+                <div style={S.emptyIcon}>📢</div>
+                <p style={S.emptyText}>No ad placements yet</p>
+              </div>
+            ) : (
+              <div style={{ ...S.tableWrap, marginTop: '20px' }}>
+                <table style={S.table}>
+                  <thead>
+                    <tr>
+                      {['Advertiser', 'Position', 'City', 'Impressions', 'Clicks', 'Status', 'Active Window', ''].map((h) => (
+                        <th key={h} style={S.th}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ads.map((ad) => (
+                      <tr key={ad.id} style={S.tr}>
+                        <td style={S.td}>
+                          <div style={S.tenantName}>{ad.advertiser_name}</div>
+                        </td>
+                        <td style={S.td}>{ad.position}</td>
+                        <td style={S.td}>{ad.city_filter || 'All'}</td>
+                        <td style={S.td}>{ad.impressions}</td>
+                        <td style={S.td}>{ad.clicks}</td>
+                        <td style={S.td}>
+                          <span style={{ ...S.statusBadge, ...(ad.is_active ? S.statusActive : S.statusInactive) }}>
+                            {ad.is_active ? 'active' : 'inactive'}
+                          </span>
+                        </td>
+                        <td style={S.td}>
+                          {new Date(ad.active_from).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                          {' → '}
+                          {new Date(ad.active_to).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td style={S.td}>
+                          <button
+                            style={{ ...S.refreshBtn, opacity: adToggleLoading === ad.id ? 0.6 : 1 }}
+                            disabled={adToggleLoading === ad.id}
+                            onClick={() => handleToggleAd(ad)}
+                          >
+                            {ad.is_active ? 'Deactivate' : 'Activate'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
       </main>
     </div>
   );
@@ -465,7 +646,7 @@ const S = {
     fontSize: '13px', fontWeight: '700', cursor: 'pointer',
   },
 
-  // Tenant table
+  // Tenant / ads table
   tableWrap: { background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden' },
   table: { width: '100%', borderCollapse: 'collapse' },
   th: { padding: '14px 20px', textAlign: 'left', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.7px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#fafbfd' },
@@ -482,8 +663,8 @@ const S = {
   statusActive: { background: '#f0fdf4', color: '#15803d' },
   statusInactive: { background: '#fff5f5', color: '#dc2626' },
 
-  // Create form
-  formCard: { background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '32px', maxWidth: '640px' },
+  // Create form (shared by Create Tenant + Ad Placements tabs)
+  formCard: { background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '32px', maxWidth: '760px' },
   createForm: { display: 'flex', flexDirection: 'column', gap: '0' },
   formError: {
     display: 'flex', alignItems: 'center', gap: '10px',
