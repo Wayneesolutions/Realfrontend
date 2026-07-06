@@ -1,12 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 
-/**
- * Billing modal, opened from the dashboard top bar (same pattern as
- * ChangePassword.jsx). Loads Razorpay's checkout script on demand — no
- * npm dependency needed, matching how Razorpay recommends integrating
- * client-side.
- */
 export default function BillingModal({ onClose }) {
   const storedUser = JSON.parse(localStorage.getItem('pve_user') || 'null');
   const isOwner = storedUser?.role === 'owner';
@@ -16,6 +11,20 @@ export default function BillingModal({ onClose }) {
   const [loading, setLoading] = useState(true);
   const [payingPlan, setPayingPlan] = useState(null);
   const [message, setMessage] = useState(null);
+
+  const location = useLocation();
+
+  useEffect(() => {
+    // Show success/cancelled message if returning from Stripe
+    const params = new URLSearchParams(location.search);
+    if (params.get('billing') === 'success') {
+      setMessage({ type: 'success', text: 'Payment successful! Your plan is now active.' });
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (params.get('billing') === 'cancelled') {
+      setMessage({ type: 'error', text: 'Payment was cancelled. You can try again anytime.' });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [location.search]);
 
   useEffect(() => {
     Promise.all([
@@ -30,58 +39,23 @@ export default function BillingModal({ onClose }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const loadRazorpayScript = () => new Promise((resolve) => {
-    if (window.Razorpay) return resolve(true);
-    const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.body.appendChild(script);
-  });
-
   const handlePay = async (planKey) => {
     setPayingPlan(planKey);
     setMessage(null);
     try {
-      const scriptLoaded = await loadRazorpayScript();
-      if (!scriptLoaded) {
-        setMessage({ type: 'error', text: 'Could not load the payment widget. Check your connection and try again.' });
-        return;
-      }
+      const successUrl = `${window.location.origin}/dashboard?billing=success`;
+      const cancelUrl = `${window.location.origin}/dashboard?billing=cancelled`;
 
-      const orderRes = await apiClient.post('/api/v1/dashboard/billing/create-order', { plan: planKey });
-      const { order, razorpayKeyId } = orderRes.data;
-
-      const razorpay = new window.Razorpay({
-        key: razorpayKeyId,
-        amount: order.amount,
-        currency: order.currency,
-        order_id: order.id,
-        name: 'PropertyPro',
-        description: `${planKey} plan — 30 days`,
-        prefill: { email: storedUser?.email || '' },
-        theme: { color: '#0c1b2e' },
-        handler: async (response) => {
-          try {
-            await apiClient.post('/api/v1/dashboard/billing/verify', {
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-            });
-            setMessage({ type: 'success', text: 'Payment successful! Your plan is now active.' });
-            const refreshed = await apiClient.get('/api/v1/dashboard/billing/status');
-            setStatus(refreshed.data.billing);
-          } catch {
-            setMessage({ type: 'error', text: 'Payment succeeded but verification failed. Contact support with your payment ID.' });
-          }
-        },
-        modal: { ondismiss: () => setPayingPlan(null) },
+      const res = await apiClient.post('/api/v1/dashboard/billing/create-checkout-session', {
+        plan: planKey,
+        successUrl,
+        cancelUrl,
       });
 
-      razorpay.open();
+      // Redirect to Stripe's hosted checkout page
+      window.location.href = res.data.url;
     } catch (err) {
       setMessage({ type: 'error', text: err.response?.data?.error?.message || 'Failed to start payment.' });
-    } finally {
       setPayingPlan(null);
     }
   };
@@ -149,7 +123,7 @@ export default function BillingModal({ onClose }) {
                       disabled={payingPlan === p.key}
                       style={{ ...S.payBtn, opacity: payingPlan === p.key ? 0.6 : 1 }}
                     >
-                      {payingPlan === p.key ? 'Opening…' : p.key === status?.plan ? 'Renew' : 'Switch & Pay'}
+                      {payingPlan === p.key ? 'Redirecting…' : p.key === status?.plan ? 'Renew' : 'Switch & Pay'}
                     </button>
                   </div>
                 ))}
@@ -186,7 +160,6 @@ const S = {
   banner: { margin: '16px 26px 0', padding: '12px 16px', borderRadius: '10px', fontSize: '13px', fontWeight: '500' },
   loading: { padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' },
   body: { padding: '20px 26px 26px', display: 'flex', flexDirection: 'column', gap: '14px' },
-
   currentPlan: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafd', borderRadius: '12px', padding: '16px 18px', border: '1px solid #eef2f7' },
   currentPlanLabel: { display: 'block', fontSize: '11px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' },
   currentPlanValue: { fontSize: '17px', fontWeight: '800', color: '#0c1b2e', textTransform: 'capitalize' },
@@ -195,7 +168,6 @@ const S = {
   statusInactive: { backgroundColor: '#fff7ed', color: '#c2410c' },
   periodNote: { margin: 0, fontSize: '12px', color: '#94a3b8' },
   hint: { margin: 0, fontSize: '13px', color: '#64748b', lineHeight: '1.6' },
-
   planList: { display: 'flex', flexDirection: 'column', gap: '10px' },
   planRow: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
