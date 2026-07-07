@@ -29,8 +29,6 @@ export default function AdminPanel() {
   const [adCreateError, setAdCreateError]     = useState(null);
   const [adCreateLoading, setAdCreateLoading] = useState(false);
   const [adToggleLoading, setAdToggleLoading] = useState(null);
-  const [adImagePreview, setAdImagePreview]   = useState(null);
-  const [adImageUploading, setAdImageUploading] = useState(false);
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
@@ -135,52 +133,11 @@ export default function AdminPanel() {
   // NEW — Phase 6: Ad Placements handlers
   const setAdField = (f) => (e) => setAdForm((p) => ({ ...p, [f]: e.target.value }));
 
-  const handleAdImageSelect = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      setAdCreateError('Image must be under 5MB.');
-      return;
-    }
-
-    setAdImagePreview(URL.createObjectURL(file));
-    setAdImageUploading(true);
-    setAdCreateError(null);
-
-    try {
-      const { data } = await apiClient.post('/api/v1/admin/upload/presign', {
-        filename: file.name,
-        contentType: file.type,
-        fileSize: file.size,
-      });
-
-      await fetch(data.presignedUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type },
-        body: file,
-      });
-
-      setAdForm((p) => ({ ...p, image_url: data.publicUrl }));
-    } catch {
-      setAdCreateError('Image upload failed. Please try again.');
-      setAdImagePreview(null);
-    } finally {
-      setAdImageUploading(false);
-    }
-  };
 
   const handleCreateAd = async (e) => {
     e.preventDefault();
     setAdCreateLoading(true);
     setAdCreateError(null);
-
-    if (!adForm.image_url) {
-      setAdCreateError('Please upload an image before submitting.');
-      setAdCreateLoading(false);
-      return;
-    }
-
     try {
       const payload = { ...adForm, city_filter: adForm.city_filter.trim() || null };
       await apiClient.post('/api/v1/admin/ads', payload);
@@ -188,7 +145,6 @@ export default function AdminPanel() {
         advertiser_name: '', position: AD_POSITIONS[0], image_url: '', click_url: '',
         city_filter: '', revenue_model: 'flat_fee', active_from: '', active_to: '',
       });
-      setAdImagePreview(null);
       showToast('Ad placement created.');
       fetchAds();
     } catch (err) {
@@ -486,31 +442,8 @@ export default function AdminPanel() {
                     </select>
                   </div>
                   <div style={S.formField}>
-                    <label style={S.formLabel}>Ad Image</label>
-                    <label style={S.uploadLabel}>
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp,image/gif"
-                        style={{ display: 'none' }}
-                        onChange={handleAdImageSelect}
-                        disabled={adImageUploading}
-                      />
-                      {adImagePreview ? (
-                        <div style={S.uploadPreviewWrap}>
-                          <img src={adImagePreview} alt="preview" style={S.uploadPreview} />
-                          <span style={S.uploadChange}>{adImageUploading ? 'Uploading…' : 'Change image'}</span>
-                        </div>
-                      ) : (
-                        <div style={S.uploadPlaceholder}>
-                          <span style={S.uploadIcon}>🖼</span>
-                          <span style={S.uploadText}>{adImageUploading ? 'Uploading…' : 'Click to upload image'}</span>
-                          <span style={S.uploadHint}>JPEG, PNG, WebP or GIF · max 5MB</span>
-                        </div>
-                      )}
-                    </label>
-                    {adForm.image_url && !adImageUploading && (
-                      <span style={S.uploadSuccess}>✓ Image uploaded to S3</span>
-                    )}
+                    <label style={S.formLabel}>Image URL</label>
+                    <input style={S.formInput} type="url" required placeholder="https://…" value={adForm.image_url} onChange={setAdField('image_url')} />
                   </div>
                   <div style={S.formField}>
                     <label style={S.formLabel}>Click-through URL</label>
@@ -759,26 +692,6 @@ const S = {
     boxShadow: '0 4px 16px rgba(12,27,46,0.25)',
   },
 
-  // S3 image upload
-  uploadLabel: {
-    display: 'block', cursor: 'pointer', border: '2px dashed #e2e8f0',
-    borderRadius: '10px', overflow: 'hidden', transition: 'border-color 0.15s',
-  },
-  uploadPlaceholder: {
-    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    padding: '24px 16px', gap: '6px', backgroundColor: '#fafbfd',
-  },
-  uploadIcon: { fontSize: '24px' },
-  uploadText: { fontSize: '13px', fontWeight: '600', color: '#374151' },
-  uploadHint: { fontSize: '11px', color: '#94a3b8' },
-  uploadPreviewWrap: { position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' },
-  uploadPreview: { width: '100%', maxHeight: '140px', objectFit: 'cover', display: 'block' },
-  uploadChange: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    background: 'rgba(12,27,46,0.65)', color: '#fff',
-    fontSize: '12px', fontWeight: '600', textAlign: 'center', padding: '6px',
-  },
-  uploadSuccess: { fontSize: '12px', color: '#15803d', fontWeight: '600', marginTop: '4px' },
 
   // Credential modal
   modalOverlay: {
