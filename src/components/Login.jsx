@@ -150,6 +150,10 @@ export default function Login() {
             }
           </button>
 
+          <p style={S.forgotLink}>
+            <a href="/forgot-password" style={S.forgotLinkA}>Forgot your password?</a>
+          </p>
+
           <p style={S.footnote}>
             Secure access · Property Visual Explorer
           </p>
@@ -343,4 +347,6 @@ const S = {
     textAlign: 'center', fontSize: '11px', color: '#94a3b8',
     padding: '20px 36px 32px', margin: 0, letterSpacing: '0.3px',
   },
+  forgotLink: { textAlign: 'center', margin: '14px 0 0' },
+  forgotLinkA: { fontSize: '13px', color: '#0c1b2e', fontWeight: '600', textDecoration: 'none' },
 };
