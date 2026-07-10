@@ -106,6 +106,7 @@ export default function PropertyView() {
   const hasSatellite  = !!media?.satellite_image_url;
   const hasStreetview = !!media?.streetview_image_url;
   const bothImages    = hasSatellite && hasStreetview;
+  const photos        = media?.photo_urls || [];
 
   return (
     <div style={S.root}>
@@ -210,6 +211,28 @@ export default function PropertyView() {
               <h2 style={S.sectionTitle}>About this Property</h2>
             </div>
             <p style={S.descTxt}>{listing.description}</p>
+          </div>
+        )}
+
+        {/* Property Photos */}
+        {photos.length > 0 && (
+          <div style={S.section}>
+            <div style={S.sectionHead}>
+              <div style={S.sectionAccent} />
+              <h2 style={S.sectionTitle}>Property Photos</h2>
+            </div>
+            <div style={S.photoScroll}>
+              {photos.map((url, i) => (
+                <div key={url} style={S.photoCard}>
+                  <img
+                    src={url}
+                    alt={`Property photo ${i + 1}`}
+                    style={S.photoCardImg}
+                    loading="lazy"
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -495,6 +518,22 @@ const S = {
   },
   timeRow: { fontSize: '11px', color: '#94a3b8' },
   emptyNote: { margin: 0, fontSize: '13px', color: '#94a3b8', fontStyle: 'italic' },
+
+  /* Photo gallery */
+  photoScroll: {
+    display: 'flex', gap: '10px', overflowX: 'auto',
+    paddingBottom: '4px',
+    scrollbarWidth: 'thin',
+  },
+  photoCard: {
+    flexShrink: 0, width: '200px', height: '150px',
+    borderRadius: '10px', overflow: 'hidden',
+    border: '1px solid #e8edf4',
+    backgroundColor: '#f1f5f9',
+  },
+  photoCardImg: {
+    width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+  },
 
   /* Lead card */
   leadCard: {

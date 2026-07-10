@@ -32,6 +32,13 @@ export default function DashboardListings() {
   const [showInviteModal, setShowInviteModal] = useState(false); // NEW — gap #7
   const [copiedSlug, setCopiedSlug]       = useState(null);
 
+  // Photo management
+  const [photoModal, setPhotoModal]             = useState(null); // listing object
+  const [photoUrls, setPhotoUrls]               = useState([]);
+  const [photoLoading, setPhotoLoading]         = useState(false);
+  const [photoUploading, setPhotoUploading]     = useState(false);
+  const [photoDeleting, setPhotoDeleting]       = useState(null); // URL being deleted
+
   useEffect(() => { fetchListings(); }, []);
 
   const fetchListings = async () => {
@@ -70,6 +77,57 @@ export default function DashboardListings() {
     navigator.clipboard.writeText(`${window.location.origin}/p/${slug}`);
     setCopiedSlug(slug);
     setTimeout(() => setCopiedSlug(null), 2200);
+  };
+
+  const openPhotoModal = async (listing) => {
+    setPhotoModal(listing);
+    setPhotoLoading(true);
+    try {
+      const r = await apiClient.get(`/api/v1/dashboard/listings/${listing.id}/media`);
+      setPhotoUrls(r.data.photo_urls || []);
+    } catch {
+      setPhotoUrls([]);
+    } finally {
+      setPhotoLoading(false);
+    }
+  };
+
+  const closePhotoModal = () => {
+    setPhotoModal(null);
+    setPhotoUrls([]);
+    setPhotoDeleting(null);
+  };
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !photoModal) return;
+    setPhotoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('photo', file);
+      const r = await apiClient.post(`/api/v1/dashboard/listings/${photoModal.id}/media`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setPhotoUrls(r.data.photo_urls || []);
+    } catch (err) {
+      alert(err.response?.data?.error?.message || 'Upload failed.');
+    } finally {
+      setPhotoUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handlePhotoDelete = async (url) => {
+    if (!photoModal) return;
+    setPhotoDeleting(url);
+    try {
+      const r = await apiClient.delete(`/api/v1/dashboard/listings/${photoModal.id}/media`, { data: { url } });
+      setPhotoUrls(r.data.photo_urls || []);
+    } catch (err) {
+      alert(err.response?.data?.error?.message || 'Delete failed.');
+    } finally {
+      setPhotoDeleting(null);
+    }
   };
 
   /* Derived stats */
@@ -165,6 +223,79 @@ export default function DashboardListings() {
       {showPwModal && <ChangePassword onClose={() => setShowPwModal(false)} />}
       {showBillingModal && <BillingModal onClose={() => setShowBillingModal(false)} />}
       {showInviteModal && <InviteUserModal onClose={() => setShowInviteModal(false)} />}
+
+      {/* ══ MODAL: Photo Management ═══════════════════════════════ */}
+      {photoModal && (
+        <div className="pve-modal-wrap" style={S.overlay}>
+          <div className="pve-modal" style={{ ...S.modal, maxWidth: '600px' }}>
+            <div style={S.modalStripe} />
+            <div style={S.modalHead}>
+              <div>
+                <p style={S.modalEye}>Property Photos</p>
+                <h3 style={S.modalTitle}>{photoModal.title}</h3>
+              </div>
+              <button onClick={closePhotoModal} style={S.closeBtn}>✕</button>
+            </div>
+
+            <div style={{ padding: '20px 24px 24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Upload button */}
+              <label style={S.uploadLabel}>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handlePhotoUpload}
+                  disabled={photoUploading || photoUrls.length >= 10}
+                  style={{ display: 'none' }}
+                />
+                {photoUploading ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={S.miniSpin} /> Uploading…
+                  </span>
+                ) : photoUrls.length >= 10 ? (
+                  '10/10 photos — limit reached'
+                ) : (
+                  `+ Upload Photo (${photoUrls.length}/10)`
+                )}
+              </label>
+
+              {/* Photo grid */}
+              {photoLoading ? (
+                <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8' }}>
+                  <div style={{ ...S.miniSpin, margin: '0 auto 10px' }} />
+                  Loading photos…
+                </div>
+              ) : photoUrls.length === 0 ? (
+                <div style={S.photoEmpty}>
+                  <span style={{ fontSize: '36px' }}>📷</span>
+                  <p style={{ margin: '8px 0 0', color: '#94a3b8', fontSize: '13px' }}>
+                    No photos yet. Upload some to show buyers.
+                  </p>
+                </div>
+              ) : (
+                <div style={S.photoGrid}>
+                  {photoUrls.map((url) => (
+                    <div key={url} style={S.photoThumb}>
+                      <img src={url} alt="Property" style={S.thumbImg} />
+                      <button
+                        onClick={() => handlePhotoDelete(url)}
+                        disabled={photoDeleting === url}
+                        style={S.thumbDel}
+                        title="Delete photo"
+                      >
+                        {photoDeleting === url ? '…' : '✕'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p style={{ margin: 0, fontSize: '11px', color: '#cbd5e1' }}>
+                JPEG, PNG, or WebP · Max 10 MB per photo · Max 10 photos per listing
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ══ PAGE BODY ════════════════════════════════════════════ */}
       <div style={S.page}>
@@ -296,6 +427,13 @@ export default function DashboardListings() {
                       style={S.actionBtn}
                     >
                       {copiedSlug === item.public_slug ? '✓ Copied!' : '🔗 Copy Link'}
+                    </button>
+                    <button
+                      className="pve-action-btn"
+                      onClick={() => openPhotoModal(item)}
+                      style={{ ...S.actionBtn, ...S.actionBtnGreen }}
+                    >
+                      📷 Photos
                     </button>
                     <button
                       className="pve-action-btn pve-action-btn-blue"
@@ -601,7 +739,8 @@ const S = {
     border: '1.5px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer',
     backgroundColor: '#fff', color: '#475569', textAlign: 'center',
   },
-  actionBtnBlue: { backgroundColor: '#eff6ff', color: '#1d4ed8', borderColor: '#bfdbfe' },
+  actionBtnBlue:  { backgroundColor: '#eff6ff', color: '#1d4ed8', borderColor: '#bfdbfe' },
+  actionBtnGreen: { backgroundColor: '#f0fdf4', color: '#059669', borderColor: '#a7f3d0' },
 
   /* Overlay / Modal */
   overlay: {
@@ -655,5 +794,44 @@ const S = {
     background: 'linear-gradient(135deg, #0c1b2e 0%, #1a3558 100%)',
     color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: '700',
     boxShadow: '0 4px 12px rgba(12,27,46,0.22)',
+  },
+
+  /* Photo modal */
+  uploadLabel: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: '12px', borderRadius: '10px', cursor: 'pointer',
+    border: '2px dashed #c8a96e', color: '#b08848',
+    fontSize: '13px', fontWeight: '700', letterSpacing: '0.3px',
+    backgroundColor: '#fffbf0', userSelect: 'none',
+    transition: 'background 0.15s',
+  },
+  miniSpin: {
+    width: '16px', height: '16px', borderRadius: '50%',
+    border: '2px solid #e2e8f0', borderTop: '2px solid #c8a96e',
+    animation: 'spin 0.7s linear infinite', display: 'inline-block',
+  },
+  photoEmpty: {
+    display: 'flex', flexDirection: 'column', alignItems: 'center',
+    padding: '32px', backgroundColor: '#f8fafd', borderRadius: '12px',
+    border: '1px dashed #e2e8f0',
+  },
+  photoGrid: {
+    display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '10px',
+  },
+  photoThumb: {
+    position: 'relative', borderRadius: '8px', overflow: 'hidden',
+    aspectRatio: '4/3', backgroundColor: '#f1f5f9',
+    border: '1px solid #e2e8f0',
+  },
+  thumbImg: {
+    width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+  },
+  thumbDel: {
+    position: 'absolute', top: '4px', right: '4px',
+    width: '22px', height: '22px', borderRadius: '50%',
+    backgroundColor: 'rgba(15,23,42,0.75)', border: 'none',
+    color: '#fff', fontSize: '11px', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    lineHeight: 1,
   },
 };

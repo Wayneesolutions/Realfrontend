@@ -30,12 +30,17 @@ export default function AdminPanel() {
   const [adCreateLoading, setAdCreateLoading] = useState(false);
   const [adToggleLoading, setAdToggleLoading] = useState(null);
 
-  // NEW — gap #3: Plans tab state (plan pricing/limits moved from
-  // hardcoded constants to this DB-managed admin UI)
+  // Plans tab state
   const [plans, setPlans] = useState([]);
-  const [editingPlan, setEditingPlan] = useState(null); // key of plan being edited
+  const [editModal, setEditModal] = useState(null);       // plan object being edited
   const [planEditForm, setPlanEditForm] = useState({ label: '', price_inr: '', listing_limit: '' });
   const [planSaveLoading, setPlanSaveLoading] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // plan key pending delete
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [planToggleLoading, setPlanToggleLoading] = useState(null); // plan key being toggled
+  const [showCreatePlan, setShowCreatePlan] = useState(false);
+  const [createPlanForm, setCreatePlanForm] = useState({ key: '', label: '', price_inr: '', listing_limit: '' });
+  const [createPlanLoading, setCreatePlanLoading] = useState(false);
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
@@ -187,9 +192,9 @@ export default function AdminPanel() {
     }
   };
 
-  // NEW — gap #3: plan editing
-  const startEditPlan = (plan) => {
-    setEditingPlan(plan.key);
+  // Plan handlers
+  const openEditModal = (plan) => {
+    setEditModal(plan);
     setPlanEditForm({
       label: plan.label,
       price_inr: plan.price_inr,
@@ -197,11 +202,8 @@ export default function AdminPanel() {
     });
   };
 
-  const cancelEditPlan = () => {
-    setEditingPlan(null);
-  };
-
-  const savePlan = async (key) => {
+  const saveEditModal = async () => {
+    if (!editModal) return;
     setPlanSaveLoading(true);
     try {
       const payload = {
@@ -209,9 +211,9 @@ export default function AdminPanel() {
         price_inr: Number(planEditForm.price_inr),
         listing_limit: planEditForm.listing_limit === '' ? null : Number(planEditForm.listing_limit),
       };
-      const res = await apiClient.patch(`/api/v1/admin/plans/${key}`, payload);
-      setPlans((prev) => prev.map((p) => (p.key === key ? res.data.plan : p)));
-      setEditingPlan(null);
+      const res = await apiClient.patch(`/api/v1/admin/plans/${editModal.key}`, payload);
+      setPlans((prev) => prev.map((p) => (p.key === editModal.key ? res.data.plan : p)));
+      setEditModal(null);
       showToast('Plan updated.');
     } catch (err) {
       showToast(err.response?.data?.error?.message || 'Failed to update plan.', 'error');
@@ -221,11 +223,53 @@ export default function AdminPanel() {
   };
 
   const togglePlanActive = async (plan) => {
+    setPlanToggleLoading(plan.key);
     try {
       const res = await apiClient.patch(`/api/v1/admin/plans/${plan.key}`, { is_active: !plan.is_active });
       setPlans((prev) => prev.map((p) => (p.key === plan.key ? res.data.plan : p)));
     } catch (err) {
       showToast(err.response?.data?.error?.message || 'Failed to update plan.', 'error');
+    } finally {
+      setPlanToggleLoading(null);
+    }
+  };
+
+  const handleDeletePlan = async () => {
+    if (!deleteConfirm) return;
+    setDeleteLoading(true);
+    try {
+      await apiClient.delete(`/api/v1/admin/plans/${deleteConfirm}`);
+      setPlans((prev) => prev.filter((p) => p.key !== deleteConfirm));
+      setDeleteConfirm(null);
+      showToast('Plan deleted.');
+    } catch (err) {
+      showToast(err.response?.data?.error?.message || 'Failed to delete plan.', 'error');
+      setDeleteConfirm(null);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleCreatePlan = async (e) => {
+    e.preventDefault();
+    setCreatePlanLoading(true);
+    try {
+      const payload = {
+        key: createPlanForm.key.toLowerCase().trim(),
+        label: createPlanForm.label,
+        price_inr: Number(createPlanForm.price_inr),
+        listing_limit: createPlanForm.listing_limit === '' ? null : Number(createPlanForm.listing_limit),
+        sort_order: plans.length + 1,
+      };
+      const res = await apiClient.post('/api/v1/admin/plans', payload);
+      setPlans((prev) => [...prev, res.data.plan]);
+      setShowCreatePlan(false);
+      setCreatePlanForm({ key: '', label: '', price_inr: '', listing_limit: '' });
+      showToast('Plan created.');
+    } catch (err) {
+      showToast(err.response?.data?.error?.message || 'Failed to create plan.', 'error');
+    } finally {
+      setCreatePlanLoading(false);
     }
   };
 
@@ -594,7 +638,7 @@ export default function AdminPanel() {
           </section>
         )}
 
-        {/* ── Tab 4: Plans (NEW — gap #3) ─────────────────── */}
+        {/* ── Tab 4: Plans ────────────────────────────────── */}
         {tab === 4 && (
           <section style={S.section}>
             <div style={S.sectionHead}>
@@ -602,91 +646,251 @@ export default function AdminPanel() {
                 <h1 style={S.pageTitle}>Plans</h1>
                 <p style={S.pageSubtitle}>Pricing, listing limits, and features shown to every tenant — editable without a code deploy</p>
               </div>
-              <button style={S.refreshBtn} onClick={fetchPlans}>Refresh</button>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button style={S.refreshBtn} onClick={fetchPlans}>Refresh</button>
+                <button style={S.createBtn} onClick={() => setShowCreatePlan(true)}>+ Add Plan</button>
+              </div>
             </div>
+
+            {/* Create Plan Form */}
+            {showCreatePlan && (
+              <div style={S.planCreateCard}>
+                <div style={S.planCreateHeader}>
+                  <span style={S.planCreateTitle}>New Plan</span>
+                  <button style={S.planCreateClose} onClick={() => setShowCreatePlan(false)}>✕</button>
+                </div>
+                <form onSubmit={handleCreatePlan} style={S.planCreateForm}>
+                  <div style={S.formGrid}>
+                    <div style={S.formField}>
+                      <label style={S.formLabel}>Plan Key (unique ID)</label>
+                      <input style={S.formInput} required placeholder="e.g. enterprise" value={createPlanForm.key}
+                        onChange={(e) => setCreatePlanForm((p) => ({ ...p, key: e.target.value }))} />
+                    </div>
+                    <div style={S.formField}>
+                      <label style={S.formLabel}>Display Label</label>
+                      <input style={S.formInput} required placeholder="e.g. Enterprise" value={createPlanForm.label}
+                        onChange={(e) => setCreatePlanForm((p) => ({ ...p, label: e.target.value }))} />
+                    </div>
+                    <div style={S.formField}>
+                      <label style={S.formLabel}>Price / Month (₹)</label>
+                      <input style={S.formInput} type="number" required placeholder="e.g. 29999" value={createPlanForm.price_inr}
+                        onChange={(e) => setCreatePlanForm((p) => ({ ...p, price_inr: e.target.value }))} />
+                    </div>
+                    <div style={S.formField}>
+                      <label style={S.formLabel}>Listing Limit (blank = unlimited)</label>
+                      <input style={S.formInput} type="number" placeholder="Leave blank for unlimited" value={createPlanForm.listing_limit}
+                        onChange={(e) => setCreatePlanForm((p) => ({ ...p, listing_limit: e.target.value }))} />
+                    </div>
+                  </div>
+                  <button type="submit" disabled={createPlanLoading} style={{ ...S.createBtn, opacity: createPlanLoading ? 0.7 : 1 }}>
+                    {createPlanLoading ? 'Creating…' : 'Create Plan'}
+                  </button>
+                </form>
+              </div>
+            )}
 
             {loading ? (
               <div style={S.empty}>Loading…</div>
             ) : (
-              <div style={S.tableWrap}>
-                <table style={S.table}>
-                  <thead>
-                    <tr>
-                      {['Plan', 'Price / month', 'Listing Limit', 'Status', ''].map((h) => (
-                        <th key={h} style={S.th}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {plans.map((plan) => (
-                      <tr key={plan.key} style={S.tr}>
-                        {editingPlan === plan.key ? (
-                          <>
-                            <td style={S.td}>
-                              <input
-                                style={S.formInput}
-                                value={planEditForm.label}
-                                onChange={(e) => setPlanEditForm((p) => ({ ...p, label: e.target.value }))}
-                              />
-                            </td>
-                            <td style={S.td}>
-                              <input
-                                style={S.formInput}
-                                type="number"
-                                value={planEditForm.price_inr}
-                                onChange={(e) => setPlanEditForm((p) => ({ ...p, price_inr: e.target.value }))}
-                              />
-                            </td>
-                            <td style={S.td}>
-                              <input
-                                style={S.formInput}
-                                type="number"
-                                placeholder="blank = unlimited"
-                                value={planEditForm.listing_limit}
-                                onChange={(e) => setPlanEditForm((p) => ({ ...p, listing_limit: e.target.value }))}
-                              />
-                            </td>
-                            <td style={S.td}>
-                              <span style={{ ...S.statusBadge, ...(plan.is_active ? S.statusActive : S.statusInactive) }}>
-                                {plan.is_active ? 'active' : 'inactive'}
-                              </span>
-                            </td>
-                            <td style={S.td}>
-                              <button
-                                style={{ ...S.approveBtn, opacity: planSaveLoading ? 0.6 : 1, marginRight: '8px' }}
-                                disabled={planSaveLoading}
-                                onClick={() => savePlan(plan.key)}
-                              >
-                                {planSaveLoading ? '…' : 'Save'}
-                              </button>
-                              <button style={S.rejectBtn} onClick={cancelEditPlan}>Cancel</button>
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td style={S.td}><div style={S.tenantName}>{plan.label}</div></td>
-                            <td style={S.td}>₹{plan.price_inr.toLocaleString('en-IN')}</td>
-                            <td style={S.td}>{plan.listing_limit === null ? 'Unlimited' : plan.listing_limit}</td>
-                            <td style={S.td}>
-                              <span style={{ ...S.statusBadge, ...(plan.is_active ? S.statusActive : S.statusInactive) }}>
-                                {plan.is_active ? 'active' : 'inactive'}
-                              </span>
-                            </td>
-                            <td style={S.td}>
-                              <button style={{ ...S.refreshBtn, marginRight: '8px' }} onClick={() => startEditPlan(plan)}>Edit</button>
-                              <button style={S.refreshBtn} onClick={() => togglePlanActive(plan)}>
-                                {plan.is_active ? 'Deactivate' : 'Activate'}
-                              </button>
-                            </td>
-                          </>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div style={S.planGrid}>
+                {plans.map((plan) => {
+                  const color = S.planAccentColors[plan.key] || S.planAccentColors._default;
+                  const isToggling = planToggleLoading === plan.key;
+                  return (
+                    <div key={plan.key} style={S.planCard}>
+                      {/* Colored top accent */}
+                      <div style={{ ...S.planCardAccent, background: color.gradient }} />
+
+                      {/* Header */}
+                      <div style={S.planCardHead}>
+                        <div style={S.planCardMeta}>
+                          <div style={{ ...S.planCardDot, background: color.accent }} />
+                          <span style={S.planCardKey}>{plan.label.toUpperCase()}</span>
+                        </div>
+                        <span style={{ ...S.statusBadge, ...(plan.is_active ? S.statusActive : S.statusInactive) }}>
+                          {plan.is_active ? 'active' : 'inactive'}
+                        </span>
+                      </div>
+
+                      {/* Price */}
+                      <div style={S.planCardPriceRow}>
+                        <span style={S.planCardPrice}>₹{plan.price_inr.toLocaleString('en-IN')}</span>
+                        <span style={S.planCardPricePer}>/month</span>
+                      </div>
+
+                      <div style={S.planCardDivider} />
+
+                      {/* Stats */}
+                      <div style={S.planCardStats}>
+                        <div style={S.planCardStat}>
+                          <span style={S.planCardStatLabel}>Listing Limit</span>
+                          <span style={{ ...S.planCardStatVal, color: color.accent }}>
+                            {plan.listing_limit === null ? '∞ Unlimited' : plan.listing_limit}
+                          </span>
+                        </div>
+                        <div style={S.planCardStat}>
+                          <span style={S.planCardStatLabel}>Features</span>
+                          <span style={{ ...S.planCardStatVal, color: color.accent }}>
+                            {Array.isArray(plan.features) ? plan.features.length : 0}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={S.planCardDivider} />
+
+                      {/* Features list */}
+                      <div style={S.planCardFeatures}>
+                        {(Array.isArray(plan.features) ? plan.features : []).map((f) => (
+                          <div key={f} style={S.planCardFeature}>
+                            <span style={{ ...S.planCardCheck, color: color.accent }}>✓</span>
+                            <span>{f}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={S.planCardDivider} />
+
+                      {/* Toggle */}
+                      <div style={S.planCardToggleRow}>
+                        <span style={S.planCardToggleLabel}>Status</span>
+                        <div style={S.planCardToggleGroup}>
+                          <div
+                            style={{
+                              width: '44px', height: '24px', borderRadius: '12px', cursor: isToggling ? 'not-allowed' : 'pointer',
+                              background: plan.is_active ? '#16a34a' : '#d1d5db',
+                              position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                              opacity: isToggling ? 0.6 : 1,
+                            }}
+                            onClick={() => !isToggling && togglePlanActive(plan)}
+                          >
+                            <div style={{
+                              width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
+                              position: 'absolute', top: '3px',
+                              left: plan.is_active ? '23px' : '3px',
+                              transition: 'left 0.2s',
+                              boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+                            }} />
+                          </div>
+                          <span style={{ fontSize: '13px', fontWeight: '600', color: plan.is_active ? '#15803d' : '#9ca3af' }}>
+                            {isToggling ? '…' : (plan.is_active ? 'Active' : 'Inactive')}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={S.planCardDivider} />
+
+                      {/* Actions */}
+                      <div style={S.planCardActions}>
+                        <button style={S.planEditBtn} onClick={() => openEditModal(plan)}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                          </svg>
+                          Edit Plan
+                        </button>
+                        <button style={S.planDeleteBtn} onClick={() => setDeleteConfirm(plan.key)}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                            <path d="M10 11v6M14 11v6"/>
+                            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                          </svg>
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </section>
+        )}
+
+        {/* ── Edit Plan Modal ──────────────────────────────── */}
+        {editModal && (
+          <div style={S.modalOverlay}>
+            <div style={{ ...S.modal, maxWidth: '480px' }}>
+              <div style={S.modalStripe} />
+              <div style={{ padding: '32px' }}>
+                <h3 style={{ ...S.modalTitle, fontSize: '18px', textAlign: 'left', marginBottom: '6px' }}>
+                  Edit Plan — {editModal.label}
+                </h3>
+                <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '24px' }}>
+                  Changes apply immediately to all agents viewing pricing.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Display Label</label>
+                    <input style={S.formInput} value={planEditForm.label}
+                      onChange={(e) => setPlanEditForm((p) => ({ ...p, label: e.target.value }))} />
+                  </div>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Price / Month (₹)</label>
+                    <input style={S.formInput} type="number" value={planEditForm.price_inr}
+                      onChange={(e) => setPlanEditForm((p) => ({ ...p, price_inr: e.target.value }))} />
+                  </div>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>Listing Limit (blank = unlimited)</label>
+                    <input style={S.formInput} type="number" placeholder="Leave blank for unlimited"
+                      value={planEditForm.listing_limit}
+                      onChange={(e) => setPlanEditForm((p) => ({ ...p, listing_limit: e.target.value }))} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', marginTop: '28px', justifyContent: 'flex-end' }}>
+                  <button style={S.rejectBtn} onClick={() => setEditModal(null)}>Cancel</button>
+                  <button
+                    style={{ ...S.approveBtn, opacity: planSaveLoading ? 0.6 : 1 }}
+                    disabled={planSaveLoading}
+                    onClick={saveEditModal}
+                  >
+                    {planSaveLoading ? 'Saving…' : 'Save Changes'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Delete Plan Confirmation Modal ───────────────── */}
+        {deleteConfirm && (
+          <div style={S.modalOverlay}>
+            <div style={{ ...S.modal, maxWidth: '420px' }}>
+              <div style={{ height: '4px', background: 'linear-gradient(90deg, #dc2626, #ef4444)' }} />
+              <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: '#fef2f2', border: '1.5px solid #fecaca', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px' }}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6M14 11v6"/>
+                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                  </svg>
+                </div>
+                <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0c1b2e', margin: '0 0 8px' }}>Delete Plan</h3>
+                <p style={{ fontSize: '14px', color: '#64748b', lineHeight: '1.6', margin: '0 0 8px' }}>
+                  Are you sure you want to delete <strong>"{plans.find(p => p.key === deleteConfirm)?.label}"</strong>?
+                </p>
+                <p style={{ fontSize: '12px', color: '#94a3b8', margin: '0 0 28px' }}>
+                  This cannot be undone. If any tenants are currently on this plan, deletion will be blocked — deactivate it instead.
+                </p>
+                <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+                  <button
+                    style={{ ...S.rejectBtn, flex: 1, justifyContent: 'center' }}
+                    onClick={() => setDeleteConfirm(null)}
+                    disabled={deleteLoading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    style={{ flex: 1, padding: '11px', background: 'linear-gradient(135deg, #dc2626, #b91c1c)', color: '#fff', border: 'none', borderRadius: '9px', fontSize: '13px', fontWeight: '700', cursor: deleteLoading ? 'not-allowed' : 'pointer', opacity: deleteLoading ? 0.6 : 1 }}
+                    onClick={handleDeletePlan}
+                    disabled={deleteLoading}
+                  >
+                    {deleteLoading ? 'Deleting…' : 'Yes, Delete'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </main>
     </div>
@@ -850,6 +1054,77 @@ const S = {
     boxShadow: '0 4px 16px rgba(12,27,46,0.25)',
   },
 
+
+  // Plan cards
+  planGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+    gap: '20px',
+  },
+  planCard: {
+    background: '#fff', borderRadius: '18px',
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 2px 12px rgba(12,27,46,0.07)',
+    overflow: 'hidden', display: 'flex', flexDirection: 'column',
+  },
+  planCardAccent: { height: '5px', flexShrink: 0 },
+  planCardHead: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '18px 20px 10px',
+  },
+  planCardMeta: { display: 'flex', alignItems: 'center', gap: '8px' },
+  planCardDot: { width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0 },
+  planCardKey: { fontSize: '11px', fontWeight: '800', color: '#0c1b2e', letterSpacing: '1px' },
+  planCardPriceRow: { padding: '4px 20px 16px', display: 'flex', alignItems: 'baseline', gap: '4px' },
+  planCardPrice: { fontSize: '32px', fontWeight: '800', color: '#0c1b2e', letterSpacing: '-1px' },
+  planCardPricePer: { fontSize: '13px', color: '#94a3b8', fontWeight: '500' },
+  planCardDivider: { height: '1px', background: '#f1f5f9', margin: '0 20px' },
+  planCardStats: { display: 'flex', gap: '0', padding: '14px 20px' },
+  planCardStat: { flex: 1, display: 'flex', flexDirection: 'column', gap: '3px' },
+  planCardStatLabel: { fontSize: '10px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.7px' },
+  planCardStatVal: { fontSize: '16px', fontWeight: '800' },
+  planCardFeatures: { padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 },
+  planCardFeature: { display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '13px', color: '#475569', lineHeight: '1.4' },
+  planCardCheck: { fontWeight: '800', fontSize: '13px', flexShrink: 0, marginTop: '1px' },
+  planCardToggleRow: {
+    padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  },
+  planCardToggleLabel: { fontSize: '12px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.7px' },
+  planCardToggleGroup: { display: 'flex', alignItems: 'center', gap: '10px' },
+  planCardActions: {
+    padding: '14px 20px', display: 'flex', gap: '10px',
+  },
+  planEditBtn: {
+    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
+    padding: '10px 16px', border: '1.5px solid #e2e8f0', borderRadius: '10px',
+    background: '#f8fafc', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+    transition: 'background 0.15s',
+  },
+  planDeleteBtn: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
+    padding: '10px 16px', border: '1.5px solid #fecaca', borderRadius: '10px',
+    background: '#fff5f5', color: '#dc2626', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+    transition: 'background 0.15s',
+  },
+  planAccentColors: {
+    starter:   { accent: '#1d4ed8', gradient: 'linear-gradient(90deg, #1d4ed8, #3b82f6)' },
+    growth:    { accent: '#b45309', gradient: 'linear-gradient(90deg, #b45309, #c8a96e)' },
+    unlimited: { accent: '#065f46', gradient: 'linear-gradient(90deg, #065f46, #10b981)' },
+    _default:  { accent: '#6b7280', gradient: 'linear-gradient(90deg, #6b7280, #9ca3af)' },
+  },
+  planCreateCard: {
+    background: '#fff', borderRadius: '16px', border: '1.5px solid #c8a96e',
+    padding: '24px', marginBottom: '24px',
+    boxShadow: '0 4px 16px rgba(200,169,110,0.12)',
+  },
+  planCreateHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' },
+  planCreateTitle: { fontSize: '15px', fontWeight: '700', color: '#0c1b2e' },
+  planCreateClose: {
+    width: '28px', height: '28px', border: 'none', borderRadius: '8px',
+    background: '#f1f5f9', color: '#64748b', cursor: 'pointer', fontSize: '13px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  planCreateForm: { display: 'flex', flexDirection: 'column', gap: '0' },
 
   // Credential modal
   modalOverlay: {
