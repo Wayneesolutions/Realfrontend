@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 
-const TABS = ['Pending Requests', 'All Tenants', 'Create Tenant', 'Ad Placements'];
+const TABS = ['Pending Requests', 'All Tenants', 'Create Tenant', 'Ad Placements', 'Plans'];
 const AD_POSITIONS = ['calculator_result', 'listing_sidebar', 'listing_footer'];
 
 export default function AdminPanel() {
@@ -29,6 +29,13 @@ export default function AdminPanel() {
   const [adCreateError, setAdCreateError]     = useState(null);
   const [adCreateLoading, setAdCreateLoading] = useState(false);
   const [adToggleLoading, setAdToggleLoading] = useState(null);
+
+  // NEW — gap #3: Plans tab state (plan pricing/limits moved from
+  // hardcoded constants to this DB-managed admin UI)
+  const [plans, setPlans] = useState([]);
+  const [editingPlan, setEditingPlan] = useState(null); // key of plan being edited
+  const [planEditForm, setPlanEditForm] = useState({ label: '', price_inr: '', listing_limit: '' });
+  const [planSaveLoading, setPlanSaveLoading] = useState(false);
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
@@ -72,11 +79,25 @@ export default function AdminPanel() {
     }
   }, []);
 
+  // NEW — gap #3
+  const fetchPlans = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiClient.get('/api/v1/admin/plans');
+      setPlans(res.data.plans);
+    } catch {
+      showToast('Failed to load plans.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (tab === 0) fetchRequests();
     if (tab === 1) fetchTenants();
     if (tab === 3) fetchAds();
-  }, [tab, fetchRequests, fetchTenants, fetchAds]);
+    if (tab === 4) fetchPlans();
+  }, [tab, fetchRequests, fetchTenants, fetchAds, fetchPlans]);
 
   const handleApprove = async (id) => {
     setActionLoading(id);
@@ -166,6 +187,48 @@ export default function AdminPanel() {
     }
   };
 
+  // NEW — gap #3: plan editing
+  const startEditPlan = (plan) => {
+    setEditingPlan(plan.key);
+    setPlanEditForm({
+      label: plan.label,
+      price_inr: plan.price_inr,
+      listing_limit: plan.listing_limit === null ? '' : plan.listing_limit,
+    });
+  };
+
+  const cancelEditPlan = () => {
+    setEditingPlan(null);
+  };
+
+  const savePlan = async (key) => {
+    setPlanSaveLoading(true);
+    try {
+      const payload = {
+        label: planEditForm.label,
+        price_inr: Number(planEditForm.price_inr),
+        listing_limit: planEditForm.listing_limit === '' ? null : Number(planEditForm.listing_limit),
+      };
+      const res = await apiClient.patch(`/api/v1/admin/plans/${key}`, payload);
+      setPlans((prev) => prev.map((p) => (p.key === key ? res.data.plan : p)));
+      setEditingPlan(null);
+      showToast('Plan updated.');
+    } catch (err) {
+      showToast(err.response?.data?.error?.message || 'Failed to update plan.', 'error');
+    } finally {
+      setPlanSaveLoading(false);
+    }
+  };
+
+  const togglePlanActive = async (plan) => {
+    try {
+      const res = await apiClient.patch(`/api/v1/admin/plans/${plan.key}`, { is_active: !plan.is_active });
+      setPlans((prev) => prev.map((p) => (p.key === plan.key ? res.data.plan : p)));
+    } catch (err) {
+      showToast(err.response?.data?.error?.message || 'Failed to update plan.', 'error');
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem('pve_token');
     localStorage.removeItem('pve_user');
@@ -193,7 +256,7 @@ export default function AdminPanel() {
           <nav style={S.nav}>
             {TABS.map((label, i) => (
               <button key={label} style={{ ...S.navItem, ...(tab === i ? S.navItemActive : {}) }} onClick={() => setTab(i)}>
-                <span style={S.navIcon}>{['📋', '🏢', '➕', '📢'][i]}</span>
+                <span style={S.navIcon}>{['📋', '🏢', '➕', '📢', '💳'][i]}</span>
                 {label}
                 {i === 0 && requests.length > 0 && (
                   <span style={S.navBadge}>{requests.length}</span>
@@ -522,6 +585,101 @@ export default function AdminPanel() {
                             {ad.is_active ? 'Deactivate' : 'Activate'}
                           </button>
                         </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ── Tab 4: Plans (NEW — gap #3) ─────────────────── */}
+        {tab === 4 && (
+          <section style={S.section}>
+            <div style={S.sectionHead}>
+              <div>
+                <h1 style={S.pageTitle}>Plans</h1>
+                <p style={S.pageSubtitle}>Pricing, listing limits, and features shown to every tenant — editable without a code deploy</p>
+              </div>
+              <button style={S.refreshBtn} onClick={fetchPlans}>Refresh</button>
+            </div>
+
+            {loading ? (
+              <div style={S.empty}>Loading…</div>
+            ) : (
+              <div style={S.tableWrap}>
+                <table style={S.table}>
+                  <thead>
+                    <tr>
+                      {['Plan', 'Price / month', 'Listing Limit', 'Status', ''].map((h) => (
+                        <th key={h} style={S.th}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plans.map((plan) => (
+                      <tr key={plan.key} style={S.tr}>
+                        {editingPlan === plan.key ? (
+                          <>
+                            <td style={S.td}>
+                              <input
+                                style={S.formInput}
+                                value={planEditForm.label}
+                                onChange={(e) => setPlanEditForm((p) => ({ ...p, label: e.target.value }))}
+                              />
+                            </td>
+                            <td style={S.td}>
+                              <input
+                                style={S.formInput}
+                                type="number"
+                                value={planEditForm.price_inr}
+                                onChange={(e) => setPlanEditForm((p) => ({ ...p, price_inr: e.target.value }))}
+                              />
+                            </td>
+                            <td style={S.td}>
+                              <input
+                                style={S.formInput}
+                                type="number"
+                                placeholder="blank = unlimited"
+                                value={planEditForm.listing_limit}
+                                onChange={(e) => setPlanEditForm((p) => ({ ...p, listing_limit: e.target.value }))}
+                              />
+                            </td>
+                            <td style={S.td}>
+                              <span style={{ ...S.statusBadge, ...(plan.is_active ? S.statusActive : S.statusInactive) }}>
+                                {plan.is_active ? 'active' : 'inactive'}
+                              </span>
+                            </td>
+                            <td style={S.td}>
+                              <button
+                                style={{ ...S.approveBtn, opacity: planSaveLoading ? 0.6 : 1, marginRight: '8px' }}
+                                disabled={planSaveLoading}
+                                onClick={() => savePlan(plan.key)}
+                              >
+                                {planSaveLoading ? '…' : 'Save'}
+                              </button>
+                              <button style={S.rejectBtn} onClick={cancelEditPlan}>Cancel</button>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td style={S.td}><div style={S.tenantName}>{plan.label}</div></td>
+                            <td style={S.td}>₹{plan.price_inr.toLocaleString('en-IN')}</td>
+                            <td style={S.td}>{plan.listing_limit === null ? 'Unlimited' : plan.listing_limit}</td>
+                            <td style={S.td}>
+                              <span style={{ ...S.statusBadge, ...(plan.is_active ? S.statusActive : S.statusInactive) }}>
+                                {plan.is_active ? 'active' : 'inactive'}
+                              </span>
+                            </td>
+                            <td style={S.td}>
+                              <button style={{ ...S.refreshBtn, marginRight: '8px' }} onClick={() => startEditPlan(plan)}>Edit</button>
+                              <button style={S.refreshBtn} onClick={() => togglePlanActive(plan)}>
+                                {plan.is_active ? 'Deactivate' : 'Activate'}
+                              </button>
+                            </td>
+                          </>
+                        )}
                       </tr>
                     ))}
                   </tbody>

@@ -9,6 +9,9 @@ import AdminPanel from './components/AdminPanel.jsx';
 import RequestAccess from './components/RequestAccess.jsx';
 // NEW — Phase 7
 import LandingPage from './components/LandingPage.jsx';
+// NEW — gap #4: password reset flow
+import ForgotPassword from './components/ForgotPassword.jsx';
+import ResetPassword from './components/ResetPassword.jsx';
 
 export default function App() {
   return (
@@ -20,6 +23,8 @@ export default function App() {
             now see an actual product page. */}
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route
           path="/dashboard"
           element={

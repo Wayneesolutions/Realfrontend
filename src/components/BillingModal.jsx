@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import apiClient from '../api/apiClient';
 
 export default function BillingModal({ onClose }) {
@@ -7,9 +7,11 @@ export default function BillingModal({ onClose }) {
   const isOwner = storedUser?.role === 'owner';
 
   const [status, setStatus] = useState(null);
+  const [history, setHistory] = useState([]); // NEW — gap #8: this was fetched by the backend but never rendered
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [payingPlan, setPayingPlan] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
   const [message, setMessage] = useState(null);
 
   const location = useLocation();
@@ -26,15 +28,19 @@ export default function BillingModal({ onClose }) {
     }
   }, [location.search]);
 
-  useEffect(() => {
-    Promise.all([
+  const loadStatus = () => {
+    return Promise.all([
       apiClient.get('/api/v1/dashboard/billing/status'),
       apiClient.get('/api/v1/public/billing/plans'),
-    ])
-      .then(([statusRes, plansRes]) => {
-        setStatus(statusRes.data.billing);
-        setPlans(plansRes.data.plans || []);
-      })
+    ]).then(([statusRes, plansRes]) => {
+      setStatus(statusRes.data.billing);
+      setHistory(statusRes.data.history || []);
+      setPlans(plansRes.data.plans || []);
+    });
+  };
+
+  useEffect(() => {
+    loadStatus()
       .catch(() => setMessage({ type: 'error', text: 'Failed to load billing details.' }))
       .finally(() => setLoading(false));
   }, []);
@@ -59,6 +65,29 @@ export default function BillingModal({ onClose }) {
       setPayingPlan(null);
     }
   };
+
+  // NEW — pairs with gap #6 (auto-renewal): now that renewal is automatic,
+  // there needs to be a way to turn it back off.
+  const handleCancel = async () => {
+    if (!window.confirm('Cancel your subscription? You\u2019ll keep access until the end of your current billing period, then it will not renew.')) {
+      return;
+    }
+    setCancelling(true);
+    setMessage(null);
+    try {
+      const res = await apiClient.post('/api/v1/dashboard/billing/cancel-subscription');
+      setMessage({ type: 'success', text: res.data.message });
+      await loadStatus();
+    } catch (err) {
+      setMessage({ type: 'error', text: err.response?.data?.error?.message || 'Failed to cancel subscription.' });
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const formatINR = (paise) => `₹${(paise / 100).toLocaleString('en-IN')}`;
+
+  const canCancel = isOwner && status?.subscription_status === 'active';
 
   return (
     <div className="pve-modal-wrap" style={S.overlay}>
@@ -104,29 +133,60 @@ export default function BillingModal({ onClose }) {
             )}
             {status?.current_period_end && (
               <p style={S.periodNote}>
-                Valid until {new Date(status.current_period_end).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+                {status.subscription_status === 'cancelling' ? 'Access ends' : 'Renews automatically on'}{' '}
+                {new Date(status.current_period_end).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
               </p>
             )}
 
             {!isOwner ? (
               <p style={S.hint}>Only the account owner can manage billing. Ask your owner to renew or change plans.</p>
             ) : (
-              <div style={S.planList}>
-                {plans.map((p) => (
-                  <div key={p.key} style={{ ...S.planRow, ...(p.key === status?.plan ? S.planRowActive : {}) }}>
-                    <div>
-                      <div style={S.planName}>{p.label}</div>
-                      <div style={S.planPrice}>₹{p.priceINR.toLocaleString('en-IN')}/month</div>
+              <>
+                <div style={S.planList}>
+                  {plans.map((p) => (
+                    <div key={p.key} style={{ ...S.planRow, ...(p.key === status?.plan ? S.planRowActive : {}) }}>
+                      <div>
+                        <div style={S.planName}>{p.label}</div>
+                        <div style={S.planPrice}>₹{p.priceINR.toLocaleString('en-IN')}/month</div>
+                      </div>
+                      <button
+                        onClick={() => handlePay(p.key)}
+                        disabled={payingPlan === p.key}
+                        style={{ ...S.payBtn, opacity: payingPlan === p.key ? 0.6 : 1 }}
+                      >
+                        {payingPlan === p.key ? 'Redirecting…' : p.key === status?.plan ? 'Renew' : 'Switch & Pay'}
+                      </button>
                     </div>
-                    <button
-                      onClick={() => handlePay(p.key)}
-                      disabled={payingPlan === p.key}
-                      style={{ ...S.payBtn, opacity: payingPlan === p.key ? 0.6 : 1 }}
-                    >
-                      {payingPlan === p.key ? 'Redirecting…' : p.key === status?.plan ? 'Renew' : 'Switch & Pay'}
-                    </button>
-                  </div>
-                ))}
+                  ))}
+                </div>
+
+                {canCancel && (
+                  <button onClick={handleCancel} disabled={cancelling} style={S.cancelBtn}>
+                    {cancelling ? 'Cancelling…' : 'Cancel auto-renewal'}
+                  </button>
+                )}
+              </>
+            )}
+
+            {/* NEW — gap #8: billing history was already being fetched by
+                the backend (getBillingStatus returns it) but nothing ever
+                rendered it. */}
+            {history.length > 0 && (
+              <div style={S.historySection}>
+                <p style={S.historyTitle}>Payment History</p>
+                <div style={S.historyList}>
+                  {history.map((h, i) => (
+                    <div key={i} style={S.historyRow}>
+                      <div>
+                        <div style={S.historyPlan}>{h.plan}</div>
+                        <div style={S.historyDate}>
+                          {new Date(h.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </div>
+                      </div>
+                      <div style={S.historyAmount}>{formatINR(h.amount_paise)}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -181,4 +241,15 @@ const S = {
     background: 'linear-gradient(135deg, #0c1b2e 0%, #1a3558 100%)',
     color: '#fff', fontWeight: '700', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap',
   },
+  cancelBtn: {
+    padding: '10px 16px', borderRadius: '9px', border: '1.5px solid #fca5a5',
+    background: '#fff', color: '#dc2626', fontWeight: '700', fontSize: '12px', cursor: 'pointer',
+  },
+  historySection: { borderTop: '1px solid #f1f5f9', paddingTop: '14px' },
+  historyTitle: { margin: '0 0 10px', fontSize: '11px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  historyList: { display: 'flex', flexDirection: 'column', gap: '8px' },
+  historyRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' },
+  historyPlan: { fontWeight: '600', color: '#0c1b2e', textTransform: 'capitalize' },
+  historyDate: { color: '#94a3b8', fontSize: '11px' },
+  historyAmount: { fontWeight: '700', color: '#0c1b2e' },
 };

@@ -5,6 +5,7 @@ import ChangePassword from './ChangePassword.jsx';
 import PlotBoundaryTracer from './PlotBoundaryTracer';
 // NEW — Phase 7
 import BillingModal from './BillingModal.jsx';
+import InviteUserModal from './InviteUserModal.jsx';
 
 export default function DashboardListings() {
   const navigate   = useNavigate();
@@ -28,6 +29,7 @@ export default function DashboardListings() {
   const [submitting, setSubmitting]       = useState(false);
   const [showPwModal, setShowPwModal]     = useState(false);
   const [showBillingModal, setShowBillingModal] = useState(false); // NEW — Phase 7
+  const [showInviteModal, setShowInviteModal] = useState(false); // NEW — gap #7
   const [copiedSlug, setCopiedSlug]       = useState(null);
 
   useEffect(() => { fetchListings(); }, []);
@@ -124,6 +126,16 @@ export default function DashboardListings() {
               </div>
             </div>
           )}
+          {storedUser?.role === 'owner' && (
+            <button
+              className="pve-topbar-btn"
+              onClick={() => setShowInviteModal(true)}
+              style={S.iconBtn}
+              title="Invite Team Member"
+            >
+              👤
+            </button>
+          )}
           <button
             className="pve-topbar-btn"
             onClick={() => setShowBillingModal(true)}
@@ -152,6 +164,7 @@ export default function DashboardListings() {
 
       {showPwModal && <ChangePassword onClose={() => setShowPwModal(false)} />}
       {showBillingModal && <BillingModal onClose={() => setShowBillingModal(false)} />}
+      {showInviteModal && <InviteUserModal onClose={() => setShowInviteModal(false)} />}
 
       {/* ══ PAGE BODY ════════════════════════════════════════════ */}
       <div style={S.page}>
