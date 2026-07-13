@@ -7,6 +7,7 @@ import PlotBoundaryTracer from './PlotBoundaryTracer';
 import BillingModal from './BillingModal.jsx';
 import InviteUserModal from './InviteUserModal.jsx';
 import LeadInbox from './LeadInbox.jsx';
+import PropertyEditModal from './PropertyEditModal.jsx';
 
 export default function DashboardListings() {
   const navigate   = useNavigate();
@@ -32,6 +33,7 @@ export default function DashboardListings() {
   const [showBillingModal, setShowBillingModal] = useState(false); // NEW — Phase 7
   const [showInviteModal, setShowInviteModal] = useState(false); // NEW — gap #7
   const [showLeadInbox, setShowLeadInbox] = useState(false); // NEW — gap: leads captured but never surfaced
+  const [editListing, setEditListing] = useState(null); // NEW — gap: no Edit/Delete/Deactivate existed
   const [copiedSlug, setCopiedSlug]       = useState(null);
 
   // Photo management
@@ -234,6 +236,14 @@ export default function DashboardListings() {
       {showBillingModal && <BillingModal onClose={() => setShowBillingModal(false)} />}
       {showInviteModal && <InviteUserModal onClose={() => setShowInviteModal(false)} />}
       {showLeadInbox && <LeadInbox onClose={() => setShowLeadInbox(false)} />}
+      {editListing && (
+        <PropertyEditModal
+          listing={editListing}
+          onClose={() => setEditListing(null)}
+          onSaved={() => { setEditListing(null); fetchListings(); }}
+          onDeleted={() => { setEditListing(null); fetchListings(); }}
+        />
+      )}
 
       {/* ══ MODAL: Photo Management ═══════════════════════════════ */}
       {photoModal && (
@@ -458,6 +468,13 @@ export default function DashboardListings() {
                       }}
                     >
                       🗺 Trace
+                    </button>
+                    <button
+                      className="pve-action-btn"
+                      onClick={() => setEditListing(item)}
+                      style={{ ...S.actionBtn, ...S.actionBtnEdit }}
+                    >
+                      ✎ Edit
                     </button>
                   </div>
                 </div>
@@ -752,6 +769,7 @@ const S = {
   },
   actionBtnBlue:  { backgroundColor: '#eff6ff', color: '#1d4ed8', borderColor: '#bfdbfe' },
   actionBtnGreen: { backgroundColor: '#f0fdf4', color: '#059669', borderColor: '#a7f3d0' },
+  actionBtnEdit:  { backgroundColor: '#fdfbf6', color: '#92702f', borderColor: '#eadfc7' },
 
   /* Overlay / Modal */
   overlay: {
