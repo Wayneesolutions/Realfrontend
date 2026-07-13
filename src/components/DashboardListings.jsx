@@ -6,6 +6,7 @@ import PlotBoundaryTracer from './PlotBoundaryTracer';
 // NEW — Phase 7
 import BillingModal from './BillingModal.jsx';
 import InviteUserModal from './InviteUserModal.jsx';
+import LeadInbox from './LeadInbox.jsx';
 
 export default function DashboardListings() {
   const navigate   = useNavigate();
@@ -30,6 +31,7 @@ export default function DashboardListings() {
   const [showPwModal, setShowPwModal]     = useState(false);
   const [showBillingModal, setShowBillingModal] = useState(false); // NEW — Phase 7
   const [showInviteModal, setShowInviteModal] = useState(false); // NEW — gap #7
+  const [showLeadInbox, setShowLeadInbox] = useState(false); // NEW — gap: leads captured but never surfaced
   const [copiedSlug, setCopiedSlug]       = useState(null);
 
   // Photo management
@@ -196,6 +198,14 @@ export default function DashboardListings() {
           )}
           <button
             className="pve-topbar-btn"
+            onClick={() => setShowLeadInbox(true)}
+            style={S.iconBtn}
+            title="Lead Inbox"
+          >
+            💬
+          </button>
+          <button
+            className="pve-topbar-btn"
             onClick={() => setShowBillingModal(true)}
             style={S.iconBtn}
             title="Billing & Plan"
@@ -223,6 +233,7 @@ export default function DashboardListings() {
       {showPwModal && <ChangePassword onClose={() => setShowPwModal(false)} />}
       {showBillingModal && <BillingModal onClose={() => setShowBillingModal(false)} />}
       {showInviteModal && <InviteUserModal onClose={() => setShowInviteModal(false)} />}
+      {showLeadInbox && <LeadInbox onClose={() => setShowLeadInbox(false)} />}
 
       {/* ══ MODAL: Photo Management ═══════════════════════════════ */}
       {photoModal && (
