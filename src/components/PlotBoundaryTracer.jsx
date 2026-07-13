@@ -71,10 +71,23 @@ export default function PlotBoundaryTracer({ listingId, centerLat, centerLng, on
       // Already loaded
       initMap();
     } else if (!document.getElementById(GMAPS_SCRIPT_ID)) {
-      // Inject script once
+      // Inject script once.
+      // NOTE: previously this URL included `&loading=async`, which tells
+      // Google's loader to use its newer dynamic-import bootstrap
+      // (google.maps.importLibrary) instead of attaching classes to
+      // window.google.maps directly. This code was never updated to use
+      // that pattern, so `script.onload` could fire before
+      // window.google.maps.Map actually existed as a constructor —
+      // exactly the "window.google.maps.Map is not a constructor" error
+      // seen in production. Removing the flag restores the classic
+      // synchronous-attach behavior that this onload-based initMap() call
+      // expects. `async`/`defer` on the tag itself keeps script loading
+      // non-blocking without needing the bootstrap loader.
       const script = document.createElement('script');
       script.id = GMAPS_SCRIPT_ID;
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&loading=async`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
+      script.async = true;
+      script.defer = true;
       script.onload = () => { if (!cancelled) initMap(); };
       script.onerror = () => {
         if (!cancelled) setErrorMessage('Failed to load Google Maps. Make sure Maps JavaScript API is enabled in Google Cloud.');
